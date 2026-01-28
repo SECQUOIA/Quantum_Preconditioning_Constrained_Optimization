@@ -29,12 +29,6 @@ python3 scripts/run_experiment.py --n 8 --seed 0 --layers 1 --out results/demo.c
 
 If `gurobipy` is installed in a specific conda env (e.g. `benchmark`), run with that env’s Python:
 
-```bash
-/home/rames102/miniconda3/envs/benchmark/bin/python scripts/run_experiment.py --n 8 --seed 0 --layers 1 --out results/demo.csv
-```
-
-(On some conda versions, `conda run ... --n 8` can be mis-parsed because `conda run` itself has a `--name/--no-capture-output` option; using the env’s Python executable avoids that.)
-
 This writes a CSV with one row for the baseline solve and one row per `penalty` file.
 
 If you want to limit runtime:
