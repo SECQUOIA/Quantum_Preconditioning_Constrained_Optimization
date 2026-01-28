@@ -1,0 +1,22 @@
+# Data is large / not needed in repo
+Data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS/editor
+.DS_Store
+.vscode/
+
+# Keep results CSVs, but ignore verbose solver logs by default
+results/logs_*/
+results/**/*.log
