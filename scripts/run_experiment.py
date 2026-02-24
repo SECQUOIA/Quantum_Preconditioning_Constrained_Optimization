@@ -6,7 +6,7 @@ import csv
 import re
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 # Allow running as a script without installing the package.
 REPO_ROOT = Path(__file__).resolve().parents[1]
