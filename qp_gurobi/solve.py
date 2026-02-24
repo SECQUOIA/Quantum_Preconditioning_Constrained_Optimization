@@ -98,7 +98,7 @@ def solve_bisection_ip(
 
     best_t: List[float] = []
 
-    def _cb(where):
+    def _cb(model, where):
         if where == GRB.Callback.MIPSOL:
             t = float(model.cbGet(GRB.Callback.RUNTIME))
             if best_t:
