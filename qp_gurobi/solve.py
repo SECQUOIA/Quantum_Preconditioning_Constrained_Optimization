@@ -3,8 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-
-from .instance import IsingInstance, bisection_violation, eval_ising, read_dat, x_from_z, z_from_x
+from .instance import IsingInstance, bisection_violation, eval_ising, read_dat, z_from_x
 
 
 @dataclass(frozen=True)
@@ -16,10 +15,12 @@ class SolveResult:
     penalty: Optional[float]
     mip_status: int
     runtime_sec: float
+    time_to_best_sec: float
     mip_gap: Optional[float]
     x_bits: List[int]
     z_bits: List[int]
     sum_z: int
+    presolve: bool
 
     def to_row(self) -> Dict[str, object]:
         d = asdict(self)
@@ -28,38 +29,21 @@ class SolveResult:
         return d
 
 
-def _build_quadratic_objective_over_x(instance: IsingInstance) -> Tuple[float, Dict[int, float], Dict[Tuple[int, int], float]]:
-    """Convert Ising objective to QUBO-style objective in x (0/1) for Gurobi.
-
-    Given z=2x-1, we can expand:
-    w_ij z_i z_j = w_ij (2x_i-1)(2x_j-1) = 4 w_ij x_i x_j - 2 w_ij x_i - 2 w_ij x_j + w_ij
-    h_i z_i = h_i (2x_i-1) = 2 h_i x_i - h_i
-
-    Returns (constant, linear, quadratic) for objective:
-      constant + sum_i lin[i]*x_i + sum_{i<j} quad[(i,j)]*x_i*x_j
-    """
-
+def _ising_to_qubo(instance: IsingInstance):
     constant = float(instance.constant)
-    linear: Dict[int, float] = {i: 0.0 for i in range(instance.n)}
+    linear: Dict[int, float] = {}
     quadratic: Dict[Tuple[int, int], float] = {}
-
-    # linear Ising terms
     for i, h in instance.linear.items():
-        constant += -h
-        linear[i] += 2.0 * h
-
-    # quadratic Ising terms
+        constant -= h
+        linear[i] = linear.get(i, 0.0) + 2.0 * h
     for (i, j), w in instance.quadratic.items():
         constant += w
-        linear[i] += -2.0 * w
-        linear[j] += -2.0 * w
+        linear[i] = linear.get(i, 0.0) - 2.0 * w
+        linear[j] = linear.get(j, 0.0) - 2.0 * w
         a, b = (i, j) if i < j else (j, i)
         quadratic[(a, b)] = quadratic.get((a, b), 0.0) + 4.0 * w
-
-    # remove near-zeros to keep model tidy
-    linear = {i: v for i, v in linear.items() if abs(v) > 0.0}
-    quadratic = {k: v for k, v in quadratic.items() if abs(v) > 0.0}
-
+    linear = {k: v for k, v in linear.items() if abs(v) > 0}
+    quadratic = {k: v for k, v in quadratic.items() if abs(v) > 0}
     return constant, linear, quadratic
 
 
@@ -75,40 +59,22 @@ def solve_bisection_ip(
     seed: Optional[int] = None,
     output_flag: int = 0,
     log_file: Optional[str | Path] = None,
+    presolve: bool = True,
 ) -> SolveResult:
-    """Solve hard bisection using Gurobi.
-
-    Constraint: sum(x_i) == n/2, where z_i = 2x_i-1.
-
-    objective_model: objective value for `instance` (with its own coefficients)
-    objective_baseline: evaluation of returned bitstring on `baseline_instance`
-    """
-
     try:
         import gurobipy as gp
         from gurobipy import GRB
-    except Exception as e:  # pragma: no cover
-        raise RuntimeError(
-            "gurobipy is required to solve. Install and ensure a Gurobi license is available."
-        ) from e
+    except Exception as e:
+        raise RuntimeError("gurobipy not available") from e
 
-    if instance.n != baseline_instance.n:
-        raise ValueError("instance and baseline_instance must have same n")
     n = instance.n
-    if n % 2 != 0:
-        raise ValueError(f"Bisection requires even n, got {n}")
-
-    const, lin, quad = _build_quadratic_objective_over_x(instance)
+    const, lin, quad = _ising_to_qubo(instance)
 
     model = gp.Model(name)
     model.Params.OutputFlag = int(output_flag)
-    # Ensure console output is enabled when requested.
-    if int(output_flag) != 0:
-        try:
-            model.Params.LogToConsole = 1
-        except Exception:
-            pass
-    if log_file is not None:
+    if output_flag:
+        model.Params.LogToConsole = 1
+    if log_file:
         model.Params.LogFile = str(log_file)
     if time_limit_sec is not None:
         model.Params.TimeLimit = float(time_limit_sec)
@@ -118,52 +84,49 @@ def solve_bisection_ip(
         model.Params.Threads = int(threads)
     if seed is not None:
         model.Params.Seed = int(seed)
+    if not presolve:
+        model.Params.Presolve = 0
 
     x = model.addVars(n, vtype=GRB.BINARY, name="x")
-
     obj = gp.LinExpr(const)
     for i, c in lin.items():
         obj += c * x[i]
     for (i, j), c in quad.items():
         obj += c * x[i] * x[j]
-
     model.setObjective(obj, GRB.MINIMIZE)
     model.addConstr(gp.quicksum(x[i] for i in range(n)) == n / 2, name="bisection")
 
-    model.optimize()
+    best_t: List[float] = []
+
+    def _cb(model, where):
+        if where == GRB.Callback.MIPSOL:
+            t = float(model.cbGet(GRB.Callback.RUNTIME))
+            if best_t:
+                best_t[0] = t
+            else:
+                best_t.append(t)
+
+    model.optimize(_cb)
 
     status = int(model.Status)
-    runtime = float(model.Runtime)
-
-    x_bits: List[int]
-    if status in (GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.SUBOPTIMAL):
-        x_bits = [int(round(x[i].X)) for i in range(n)]
-    else:
-        x_bits = [0] * n
-
+    feasible = status in (GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.SUBOPTIMAL)
+    x_bits = [int(round(x[i].X)) for i in range(n)] if feasible else [0] * n
     z_bits = z_from_x(x_bits)
-
-    objective_model = float(model.ObjVal) if status in (GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.SUBOPTIMAL) else float("nan")
-    objective_baseline = eval_ising(baseline_instance, z_bits) if status in (GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.SUBOPTIMAL) else float("nan")
-
-    gap: Optional[float] = None
-    try:
-        gap = float(model.MIPGap) if status in (GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.SUBOPTIMAL) else None
-    except Exception:
-        gap = None
 
     return SolveResult(
         name=name,
         n=n,
-        objective_model=objective_model,
-        objective_baseline=objective_baseline,
+        objective_model=float(model.ObjVal) if feasible else float("nan"),
+        objective_baseline=eval_ising(baseline_instance, z_bits) if feasible else float("nan"),
         penalty=penalty,
         mip_status=status,
-        runtime_sec=runtime,
-        mip_gap=gap,
+        runtime_sec=float(model.Runtime),
+        time_to_best_sec=best_t[0] if best_t else float("nan"),
+        mip_gap=float(model.MIPGap) if feasible else None,
         x_bits=x_bits,
         z_bits=z_bits,
         sum_z=bisection_violation(z_bits),
+        presolve=presolve,
     )
 
 
@@ -177,45 +140,23 @@ def solve_from_paths(
     seed: Optional[int] = None,
     output_flag: int = 0,
     log_dir: Optional[str | Path] = None,
+    presolve: bool = True,
 ) -> List[SolveResult]:
     baseline = read_dat(baseline_path)
+    log_path = Path(log_dir) if log_dir else None
+    if log_path:
+        log_path.mkdir(parents=True, exist_ok=True)
 
-    log_dir_path: Optional[Path] = None
-    if log_dir is not None:
-        log_dir_path = Path(log_dir)
-        log_dir_path.mkdir(parents=True, exist_ok=True)
-
-    results: List[SolveResult] = []
-    results.append(
-        solve_bisection_ip(
-            baseline,
-            baseline,
-            name="baseline",
-            penalty=None,
-            time_limit_sec=time_limit_sec,
-            mip_gap=mip_gap,
-            threads=threads,
-            seed=seed,
-            output_flag=output_flag,
-            log_file=(log_dir_path / "baseline.log") if log_dir_path is not None else None,
+    def _solve(inst, name, penalty):
+        return solve_bisection_ip(
+            inst, baseline, name=name, penalty=penalty,
+            time_limit_sec=time_limit_sec, mip_gap=mip_gap,
+            threads=threads, seed=seed, output_flag=output_flag,
+            log_file=(log_path / f"{name}.log") if log_path else None,
+            presolve=presolve,
         )
-    )
 
+    results = [_solve(baseline, "baseline", None)]
     for pen, pth in preconditioned_paths:
-        inst = read_dat(pth)
-        results.append(
-            solve_bisection_ip(
-                inst,
-                baseline,
-                name=f"precond_pen={pen:.3f}",
-                penalty=float(pen),
-                time_limit_sec=time_limit_sec,
-                mip_gap=mip_gap,
-                threads=threads,
-                seed=seed,
-                output_flag=output_flag,
-                log_file=(log_dir_path / f"precond_pen={pen:.3f}.log") if log_dir_path is not None else None,
-            )
-        )
-
+        results.append(_solve(read_dat(pth), f"precond_pen={pen:.3f}", float(pen)))
     return results

@@ -2,10 +2,10 @@
 
 This repo contains a tiny workflow to compare:
 
-- **Baseline** graph-bisection objective from `Data/N=.../seed=.../problem.dat`
-- **Preconditioned** objectives from `Data/N=.../seed=.../n_qaoa_layers=.../preconditioned_problem_pen=...dat`
+- **Baseline** graph bi-partioning objective from `one_equality/../N=.../seed=.../problem.dat`
+- **Preconditioned** objectives from `one_equality/../N=.../seed=.../n_qaoa_layers=.../preconditioned_problem_pen=...dat`
 
-Both are solved with the **same hard bisection constraint** (equal-size partition):
+Both are solved with the **same hard bi-partioning constraint** (equal-size partition):
 
 - variables are represented internally as `x_i ∈ {0,1}`
 - with `z_i = 2x_i - 1 ∈ {−1,+1}`
@@ -25,6 +25,26 @@ From the repo root:
 
 ```bash
 python3 scripts/run_experiment.py --n 8 --seed 0 --layers 1 --out results/demo.csv
+```
+
+By default, the runner looks under `one_equality/complete_random`.
+
+Multi-seed run (flexible: discovers whatever penalty files exist per seed):
+
+```bash
+python3 scripts/run_experiment.py --n 20 --layers 1 --seeds 0,1,2 --out results/N=20_seeds=0_1_2_layers=1.csv
+```
+
+Or run all available `seed=*` folders under a given `N=...`:
+
+```bash
+python3 scripts/run_experiment.py --n 20 --layers 1 --all-seeds --out results/N=20_seeds=all_layers=1.csv
+```
+
+Disable Gurobi presolve for a pure branch-and-bound comparison:
+
+```bash
+python3 scripts/run_experiment.py --n 20 --layers 1 --all-seeds --no-presolve --out results/N=20_nopresolve_layers=1.csv
 ```
 
 If `gurobipy` is installed in a specific conda env (e.g. `benchmark`), run with that env’s Python:

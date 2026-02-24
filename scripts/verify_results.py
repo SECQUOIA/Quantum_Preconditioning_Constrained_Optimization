@@ -5,7 +5,6 @@ import argparse
 import math
 import sys
 from pathlib import Path
-
 import pandas as pd
 
 # Allow running as a script without installing the package.
@@ -34,17 +33,26 @@ def main() -> int:
         )
     )
     ap.add_argument("--csv", type=Path, required=True, help="Results CSV to verify")
-    ap.add_argument("--data-root", type=Path, default=Path("Data"), help="Root Data folder (default: Data)")
+    ap.add_argument(
+        "--data-root",
+        type=Path,
+        default=Path("one_equality") / "complete_random",
+        help="Root data folder (default: one_equality/complete_random)",
+    )
     ap.add_argument("--n", type=int, required=True, help="Problem size N")
     ap.add_argument("--seed", type=int, required=True, help="Seed folder")
     ap.add_argument("--tol", type=float, default=1e-6, help="Tolerance for objective comparison")
 
     args = ap.parse_args()
 
+    data_root = args.data_root
+    if not data_root.is_absolute():
+        data_root = (REPO_ROOT / data_root).resolve()
+
     if args.n % 2 != 0:
         raise SystemExit(f"N must be even for bisection, got {args.n}")
 
-    baseline_path = args.data_root / f"N={args.n}" / f"seed={args.seed}" / "problem.dat"
+    baseline_path = data_root / f"N={args.n}" / f"seed={args.seed}" / "problem.dat"
     baseline = read_dat(baseline_path)
 
     df = pd.read_csv(

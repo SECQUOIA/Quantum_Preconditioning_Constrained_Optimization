@@ -1,5 +1,6 @@
 # Data is large / not needed in repo
 Data/
+one_equality/
 
 # Python
 __pycache__/
