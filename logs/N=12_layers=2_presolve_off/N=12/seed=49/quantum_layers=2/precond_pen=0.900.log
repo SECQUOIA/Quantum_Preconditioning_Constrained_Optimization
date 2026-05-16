@@ -1,0 +1,62 @@
+
+Gurobi 13.0.0 (linux64) logging started Sun May  3 11:06:43 2026
+
+Set parameter LogFile to value "logs/N=12_layers=2_presolve_off/N=12/seed=49/quantum_layers=2/precond_pen=0.900.log"
+Set parameter MIPGap to value 1e-06
+Set parameter Threads to value 8
+Set parameter Presolve to value 0
+Gurobi Optimizer version 13.0.0 build v13.0.0rc1 (linux64 - "Oracle Linux Server 9.7")
+
+CPU model: AMD EPYC 7643 48-Core Processor, instruction set [SSE2|AVX|AVX2]
+Thread count: 48 physical cores, 96 logical processors, using up to 8 threads
+
+Non-default parameters:
+MIPGap  1e-06
+Presolve  0
+Threads  8
+
+Optimize a model with 1 rows, 12 columns and 12 nonzeros (Min)
+Model fingerprint: 0xf3d8ef5e
+Model has 12 linear objective coefficients and an objective constant of 5.335475660054
+Model has 66 quadratic objective terms
+Variable types: 0 continuous, 12 integer (12 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+00]
+  Objective range  [2e+00, 2e+00]
+  QObjective range [8e-03, 2e+00]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [6e+00, 6e+00]
+Found heuristic solution: objective -0.0164078
+Variable types: 0 continuous, 78 integer (78 binary)
+
+Root relaxation: objective -5.522728e+00, 18 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0   -5.52273    0   12   -0.01641   -5.52273      -     -    0s
+H    0     0                      -0.4621843   -5.52273  1095%     -    0s
+H    0     0                      -0.9027119   -5.52273   512%     -    0s
+H    0     0                      -1.0705345   -5.52273   416%     -    0s
+H    0     0                      -2.0109208   -5.52273   175%     -    0s
+H    0     0                      -2.0440315   -3.84031  87.9%     -    0s
+     0     0   -2.07995    0   41   -2.04403   -2.07995  1.76%     -    0s
+     0     0   -2.04403    0   36   -2.04403   -2.04403  0.00%     -    0s
+
+Cutting planes:
+  Gomory: 2
+  MIR: 34
+  Zero half: 6
+  RLT: 16
+  BQP: 67
+
+Explored 1 nodes (156 simplex iterations) in 0.01 seconds (0.00 work units)
+Thread count was 8 (of 96 available processors)
+
+Solution count 6: -2.04403 -2.01092 -1.07053 ... -0.0164078
+No other solutions better than -2.04403
+
+Optimal solution found (tolerance 1.00e-06)
+Best objective -2.044031474588e+00, best bound -2.044031474588e+00, gap 0.0000%
+
+User-callback calls 78, time in user-callback 0.00 sec

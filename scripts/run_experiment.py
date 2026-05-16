@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import re
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 # Allow running as a script without installing the package.
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +21,7 @@ _PEN_RE = re.compile(r"preconditioned_problem_pen=(?P<pen>[0-9]+\.[0-9]+)\.dat$"
 
 
 def _discover_seeds(n_dir: Path) -> List[int]:
+    """Discover available integer seed directories under an ``N`` folder."""
     seeds: List[int] = []
     for p in sorted(n_dir.glob("seed=*")):
         if not p.is_dir():
@@ -32,6 +34,7 @@ def _discover_seeds(n_dir: Path) -> List[int]:
 
 
 def _parse_seed_list(seeds_csv: str) -> List[int]:
+    """Parse a comma-separated seed list."""
     seeds: List[int] = []
     for tok in seeds_csv.split(","):
         tok = tok.strip()
@@ -42,6 +45,7 @@ def _parse_seed_list(seeds_csv: str) -> List[int]:
 
 
 def _discover_preconditioned(layer_dir: Path) -> List[Tuple[float, Path]]:
+    """Discover preconditioned instance files and their penalties."""
     items: List[Tuple[float, Path]] = []
     for p in sorted(layer_dir.glob("preconditioned_problem_pen=*.dat")):
         m = _PEN_RE.search(p.name)
@@ -54,7 +58,30 @@ def _discover_preconditioned(layer_dir: Path) -> List[Tuple[float, Path]]:
     return items
 
 
+def _setting_dir(instance_dir: Path, family: str, layers: int | None, sweeps: int | None) -> Path:
+    """Return the data directory for one preconditioner family setting."""
+    if family == "quantum":
+        if layers is None:
+            raise ValueError("--layers is required when --preconditioner=quantum")
+        return instance_dir / f"n_qaoa_layers={layers}"
+    if sweeps is None:
+        raise ValueError("--sweeps is required when --preconditioner=classical")
+    return instance_dir / f"n_sweeps={sweeps}"
+
+
+def _family_tag(family: str, layers: int | None, sweeps: int | None) -> str:
+    """Return the filename tag for one preconditioner family setting."""
+    if family == "quantum":
+        if layers is None:
+            raise ValueError("layers is required for quantum outputs")
+        return f"quantum_layers={layers}"
+    if sweeps is None:
+        raise ValueError("sweeps is required for classical outputs")
+    return f"classical_sweeps={sweeps}"
+
+
 def main() -> int:
+    """Run the experiment CLI and write summary/trajectory outputs."""
     ap = argparse.ArgumentParser(description="Solve baseline and preconditioned instances with hard bisection constraint.")
     ap.add_argument(
         "--data-root",
@@ -66,7 +93,14 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=None, help="Single seed to run (legacy; prefer --seeds or --all-seeds)")
     ap.add_argument("--seeds", type=str, default=None, help="Comma-separated seed list (e.g. 0,1,2,5)")
     ap.add_argument("--all-seeds", action="store_true", help="Discover and run all available seed=* folders")
-    ap.add_argument("--layers", type=int, default=1, help="n_qaoa_layers folder (default: 1)")
+    ap.add_argument(
+        "--preconditioner",
+        choices=["quantum", "classical"],
+        default="quantum",
+        help="Preconditioning family to run (default: quantum)",
+    )
+    ap.add_argument("--layers", type=int, default=None, help="Quantum n_qaoa_layers folder")
+    ap.add_argument("--sweeps", type=int, default=None, help="Classical n_sweeps folder")
     ap.add_argument("--time-limit", type=float, default=None, help="Gurobi TimeLimit seconds")
     ap.add_argument("--mip-gap", type=float, default=None, help="Gurobi MIPGap")
     ap.add_argument("--threads", type=int, default=None, help="Gurobi Threads")
@@ -74,9 +108,35 @@ def main() -> int:
     ap.add_argument("--show-logs", action="store_true", help="Stream Gurobi log output to the console")
     ap.add_argument("--log-dir", type=Path, default=None, help="If set, write per-run Gurobi logs into this directory")
     ap.add_argument("--no-presolve", action="store_true", help="Disable Gurobi presolve (pure branch-and-bound)")
-    ap.add_argument("--out", type=Path, default=None, help="Output CSV path (default: results/N=..._seed=..._layers=....csv)")
+    ap.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Output summary CSV path (default includes N, family parameter, and presolve mode).",
+    )
+    ap.add_argument(
+        "--trajectory-out",
+        type=Path,
+        default=None,
+        help=(
+            "If set, write a long-format trajectory CSV with one row per MIPSol callback event. "
+            "Columns: seed, layers, sweeps, preconditioner_family, name, penalty, presolve, event_idx, "
+            "time_sec, orig_obj, running_best_orig_obj."
+        ),
+    )
 
     args = ap.parse_args()
+
+    if args.preconditioner == "quantum":
+        if args.layers is None:
+            raise SystemExit("--layers is required when --preconditioner=quantum")
+        if args.sweeps is not None:
+            raise SystemExit("--sweeps cannot be used when --preconditioner=quantum")
+    else:
+        if args.sweeps is None:
+            raise SystemExit("--sweeps is required when --preconditioner=classical")
+        if args.layers is not None:
+            raise SystemExit("--layers cannot be used when --preconditioner=classical")
 
     data_root = args.data_root
     # If invoked from a subdirectory (e.g. `cd scripts`), make relative paths
@@ -97,28 +157,29 @@ def main() -> int:
         seeds = [0]
 
     all_rows: List[Dict[str, object]] = []
+    family_tag = _family_tag(args.preconditioner, args.layers, args.sweeps)
 
     for seed in seeds:
         instance_dir = n_dir / f"seed={seed}"
         baseline_path = instance_dir / "problem.dat"
-        layer_dir = instance_dir / f"n_qaoa_layers={args.layers}"
+        precond_dir = _setting_dir(instance_dir, args.preconditioner, args.layers, args.sweeps)
 
         if not baseline_path.exists():
             print(f"[WARN] Missing baseline file: {baseline_path} (skipping)")
             continue
-        if not layer_dir.exists():
-            print(f"[WARN] Missing layer dir: {layer_dir} (skipping)")
+        if not precond_dir.exists():
+            print(f"[WARN] Missing preconditioner dir: {precond_dir} (skipping)")
             continue
 
         try:
-            precond = _discover_preconditioned(layer_dir)
+            precond = _discover_preconditioned(precond_dir)
         except FileNotFoundError as e:
             print(f"[WARN] {e} (skipping seed={seed})")
             continue
 
         seed_log_dir = None
         if args.log_dir is not None:
-            seed_log_dir = Path(args.log_dir) / f"N={args.n}" / f"seed={seed}" / f"n_qaoa_layers={args.layers}"
+            seed_log_dir = Path(args.log_dir) / f"N={args.n}" / f"seed={seed}" / family_tag
 
         results = solve_from_paths(
             baseline_path=baseline_path,
@@ -135,7 +196,9 @@ def main() -> int:
         for r in results:
             row = r.to_row()
             row["seed"] = int(seed)
-            row["layers"] = int(args.layers)
+            row["preconditioner_family"] = args.preconditioner
+            row["layers"] = int(args.layers) if args.layers is not None else None
+            row["sweeps"] = int(args.sweeps) if args.sweeps is not None else None
             row["data_root"] = str(data_root)
             row["presolve"] = not args.no_presolve
             all_rows.append(row)
@@ -150,7 +213,8 @@ def main() -> int:
             seed_tag = compact if len(compact) <= 40 else f"listN{len(seeds)}"
         else:
             seed_tag = str(args.seed) if args.seed is not None else "0"
-        out = Path("results") / f"N={args.n}_seeds={seed_tag}_layers={args.layers}.csv"
+        mode = "off" if args.no_presolve else "on"
+        out = Path("results") / f"N={args.n}_{family_tag}_presolve_{mode}.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
 
     if not all_rows:
@@ -164,6 +228,43 @@ def main() -> int:
         w.writerows(all_rows)
 
     print(f"Wrote {len(all_rows)} rows to {out}")
+
+    traj_out = args.trajectory_out
+    if traj_out is None:
+        mode = "off" if args.no_presolve else "on"
+        traj_out = Path("results") / f"N={args.n}_{family_tag}_presolve_{mode}_trajectories.csv"
+    if traj_out:
+        traj_out.parent.mkdir(parents=True, exist_ok=True)
+        traj_rows: List[Dict[str, object]] = []
+        for row in all_rows:
+            raw = row.get("trajectory", "[]")
+            events: List[List[float]] = json.loads(raw) if raw else []
+            running_best = float("inf")
+            for idx, (t, orig_obj) in enumerate(events):
+                running_best = min(running_best, orig_obj)
+                traj_rows.append({
+                    "seed": row["seed"],
+                    "layers": row["layers"],
+                    "sweeps": row.get("sweeps"),
+                    "preconditioner_family": row.get("preconditioner_family"),
+                    "name": row["name"],
+                    "penalty": row.get("penalty"),
+                    "presolve": row.get("presolve"),
+                    "event_idx": idx,
+                    "time_sec": t,
+                    "orig_obj": orig_obj,
+                    "running_best_orig_obj": running_best,
+                })
+        if traj_rows:
+            traj_fieldnames = list(traj_rows[0].keys())
+            with traj_out.open("w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=traj_fieldnames)
+                w.writeheader()
+                w.writerows(traj_rows)
+            print(f"Wrote {len(traj_rows)} trajectory rows to {traj_out}")
+        else:
+            print("[WARN] No trajectory events were recorded.")
+
     return 0
 
 

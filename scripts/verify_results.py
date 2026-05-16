@@ -16,6 +16,7 @@ from qp_gurobi.instance import eval_ising, read_dat, z_from_x
 
 
 def _parse_x_bits(x_bits: str, n: int) -> list[int]:
+    """Parse a compact binary solution string into bits."""
     s = str(x_bits).strip()
     if len(s) != n:
         # tolerate missing leading zeros
@@ -26,6 +27,7 @@ def _parse_x_bits(x_bits: str, n: int) -> list[int]:
 
 
 def main() -> int:
+    """Run the result verification CLI."""
     ap = argparse.ArgumentParser(
         description=(
             "Verify a results CSV by recomputing baseline objective from stored bitstrings "

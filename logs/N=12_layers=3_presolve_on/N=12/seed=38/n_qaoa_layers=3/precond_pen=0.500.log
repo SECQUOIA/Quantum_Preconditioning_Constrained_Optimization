@@ -1,0 +1,114 @@
+
+Gurobi 13.0.0 (linux64) logging started Tue Mar 31 15:06:53 2026
+
+Set parameter LogFile to value "logs/N=12_layers=3_presolve_on/N=12/seed=38/n_qaoa_layers=3/precond_pen=0.500.log"
+Set parameter MIPGap to value 1e-06
+Set parameter Threads to value 8
+Gurobi Optimizer version 13.0.0 build v13.0.0rc1 (linux64 - "Oracle Linux Server 9.7")
+
+CPU model: AMD EPYC 7643 48-Core Processor, instruction set [SSE2|AVX|AVX2]
+Thread count: 48 physical cores, 96 logical processors, using up to 8 threads
+
+Non-default parameters:
+MIPGap  1e-06
+Threads  8
+
+Optimize a model with 1 rows, 12 columns and 12 nonzeros (Min)
+Model fingerprint: 0x3ffad8f2
+Model has 12 linear objective coefficients and an objective constant of 4.540997619467
+Model has 66 quadratic objective terms
+Variable types: 0 continuous, 12 integer (12 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+00]
+  Objective range  [8e-01, 2e+00]
+  QObjective range [2e-02, 4e+00]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [6e+00, 6e+00]
+Found heuristic solution: objective -1.0464191
+Presolve time: 0.00s
+Presolved: 67 rows, 78 columns, 210 nonzeros
+Variable types: 0 continuous, 78 integer (78 binary)
+
+Root relaxation: objective -1.426675e+01, 11 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0  -14.26675    0   12   -1.04642  -14.26675  1263%     -    0s
+H    0     0                      -6.0437370  -14.26675   136%     -    0s
+H    0     0                     -11.7071607  -14.26675  21.9%     -    0s
+
+Cutting planes:
+  Gomory: 1
+  MIR: 18
+  Zero half: 13
+  RLT: 15
+  BQP: 51
+
+Explored 1 nodes (11 simplex iterations) in 0.01 seconds (0.00 work units)
+Thread count was 8 (of 96 available processors)
+
+Solution count 3: -11.7072 -6.04374 -1.04642 
+No other solutions better than -11.7072
+
+Optimal solution found (tolerance 1.00e-06)
+Best objective -1.170716074556e+01, best bound -1.170716074556e+01, gap 0.0000%
+
+User-callback calls 157, time in user-callback 0.00 sec
+
+Gurobi 13.0.0 (linux64) logging started Tue Mar 31 15:10:52 2026
+
+Set parameter LogFile to value "logs/N=12_layers=3_presolve_on/N=12/seed=38/n_qaoa_layers=3/precond_pen=0.500.log"
+Set parameter MIPGap to value 1e-06
+Set parameter Threads to value 8
+Gurobi Optimizer version 13.0.0 build v13.0.0rc1 (linux64 - "Oracle Linux Server 9.7")
+
+CPU model: AMD EPYC 7643 48-Core Processor, instruction set [SSE2|AVX|AVX2]
+Thread count: 48 physical cores, 96 logical processors, using up to 8 threads
+
+Non-default parameters:
+MIPGap  1e-06
+Threads  8
+
+Optimize a model with 1 rows, 12 columns and 12 nonzeros (Min)
+Model fingerprint: 0x3ffad8f2
+Model has 12 linear objective coefficients and an objective constant of 4.540997619467
+Model has 66 quadratic objective terms
+Variable types: 0 continuous, 12 integer (12 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+00]
+  Objective range  [8e-01, 2e+00]
+  QObjective range [2e-02, 4e+00]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [6e+00, 6e+00]
+Found heuristic solution: objective -1.0464191
+Presolve time: 0.00s
+Presolved: 67 rows, 78 columns, 210 nonzeros
+Variable types: 0 continuous, 78 integer (78 binary)
+
+Root relaxation: objective -1.426675e+01, 11 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0  -14.26675    0   12   -1.04642  -14.26675  1263%     -    0s
+H    0     0                      -6.0437370  -14.26675   136%     -    0s
+H    0     0                     -11.7071607  -14.26675  21.9%     -    0s
+
+Cutting planes:
+  Gomory: 1
+  MIR: 18
+  Zero half: 13
+  RLT: 15
+  BQP: 51
+
+Explored 1 nodes (11 simplex iterations) in 0.01 seconds (0.00 work units)
+Thread count was 8 (of 96 available processors)
+
+Solution count 3: -11.7072 -6.04374 -1.04642 
+No other solutions better than -11.7072
+
+Optimal solution found (tolerance 1.00e-06)
+Best objective -1.170716074556e+01, best bound -1.170716074556e+01, gap 0.0000%
+
+User-callback calls 157, time in user-callback 0.00 sec

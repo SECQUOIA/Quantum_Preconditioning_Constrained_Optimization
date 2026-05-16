@@ -1,0 +1,61 @@
+
+Gurobi 13.0.0 (linux64) logging started Tue Mar 31 15:12:49 2026
+
+Set parameter LogFile to value "logs/N=16_layers=2_presolve_off/N=16/seed=14/n_qaoa_layers=2/precond_pen=0.600.log"
+Set parameter MIPGap to value 1e-06
+Set parameter Threads to value 8
+Set parameter Presolve to value 0
+Gurobi Optimizer version 13.0.0 build v13.0.0rc1 (linux64 - "Oracle Linux Server 9.7")
+
+CPU model: AMD EPYC 7643 48-Core Processor, instruction set [SSE2|AVX|AVX2]
+Thread count: 48 physical cores, 96 logical processors, using up to 8 threads
+
+Non-default parameters:
+MIPGap  1e-06
+Presolve  0
+Threads  8
+
+Optimize a model with 1 rows, 16 columns and 16 nonzeros (Min)
+Model fingerprint: 0xb0e6154c
+Model has 16 linear objective coefficients and an objective constant of 6.0831058890579994e+00
+Model has 120 quadratic objective terms
+Variable types: 0 continuous, 16 integer (16 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+00]
+  Objective range  [1e+00, 2e+00]
+  QObjective range [1e-02, 3e+00]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [8e+00, 8e+00]
+Found heuristic solution: objective -0.0322031
+Variable types: 0 continuous, 136 integer (136 binary)
+
+Root relaxation: objective -1.459326e+01, 18 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0  -14.59326    0   16   -0.03220  -14.59326      -     -    0s
+H    0     0                      -0.9278538  -14.59326  1473%     -    0s
+H    0     0                      -1.9239158  -14.59326   659%     -    0s
+H    0     0                      -2.2861537  -14.59326   538%     -    0s
+H    0     0                      -7.1500870  -14.59326   104%     -    0s
+     0     0   -7.59600    0   60   -7.15009   -7.59600  6.24%     -    0s
+
+Cutting planes:
+  Gomory: 15
+  MIR: 110
+  Flow cover: 8
+  Zero half: 33
+  RLT: 25
+  BQP: 146
+
+Explored 1 nodes (190 simplex iterations) in 0.03 seconds (0.02 work units)
+Thread count was 8 (of 96 available processors)
+
+Solution count 5: -7.15009 -2.28615 -1.92392 ... -0.0322031
+No other solutions better than -7.15009
+
+Optimal solution found (tolerance 1.00e-06)
+Best objective -7.150087018704e+00, best bound -7.150087018704e+00, gap 0.0000%
+
+User-callback calls 79, time in user-callback 0.00 sec

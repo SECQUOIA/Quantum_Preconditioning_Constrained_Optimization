@@ -1,0 +1,60 @@
+
+Gurobi 13.0.0 (linux64) logging started Sun May  3 10:58:34 2026
+
+Set parameter LogFile to value "logs/N=16_layers=2_presolve_on/N=16/seed=30/quantum_layers=2/precond_pen=0.500.log"
+Set parameter MIPGap to value 1e-06
+Set parameter Threads to value 8
+Gurobi Optimizer version 13.0.0 build v13.0.0rc1 (linux64 - "Oracle Linux Server 9.7")
+
+CPU model: AMD EPYC 7643 48-Core Processor, instruction set [SSE2|AVX|AVX2]
+Thread count: 48 physical cores, 96 logical processors, using up to 8 threads
+
+Non-default parameters:
+MIPGap  1e-06
+Threads  8
+
+Optimize a model with 1 rows, 16 columns and 16 nonzeros (Min)
+Model fingerprint: 0x687caab4
+Model has 16 linear objective coefficients and an objective constant of 5.9117096756170016e+00
+Model has 120 quadratic objective terms
+Variable types: 0 continuous, 16 integer (16 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+00]
+  Objective range  [9e-01, 2e+00]
+  QObjective range [2e-03, 3e+00]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [8e+00, 8e+00]
+Found heuristic solution: objective 1.6339352
+Presolve time: 0.00s
+Presolved: 121 rows, 136 columns, 376 nonzeros
+Variable types: 0 continuous, 136 integer (136 binary)
+
+Root relaxation: objective -1.745436e+01, 26 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0  -17.45436    0   16    1.63394  -17.45436  1168%     -    0s
+H    0     0                       0.0583611  -17.45436      -     -    0s
+H    0     0                      -0.5853439  -17.45436  2882%     -    0s
+H    0     0                      -0.6670800  -17.45436  2517%     -    0s
+H    0     0                     -10.6502010  -17.45436  63.9%     -    0s
+     0     0     cutoff    0       -10.65020  -10.65020  0.00%     -    0s
+
+Cutting planes:
+  Gomory: 1
+  MIR: 48
+  Zero half: 26
+  RLT: 35
+  BQP: 146
+
+Explored 1 nodes (168 simplex iterations) in 0.01 seconds (0.01 work units)
+Thread count was 8 (of 96 available processors)
+
+Solution count 5: -10.6502 -0.66708 -0.585344 ... 1.63394
+No other solutions better than -10.6502
+
+Optimal solution found (tolerance 1.00e-06)
+Best objective -1.065020096257e+01, best bound -1.065020096257e+01, gap 0.0000%
+
+User-callback calls 166, time in user-callback 0.00 sec

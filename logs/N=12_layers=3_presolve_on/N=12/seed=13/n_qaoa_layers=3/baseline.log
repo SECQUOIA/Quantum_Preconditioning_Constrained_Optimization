@@ -1,0 +1,124 @@
+
+Gurobi 13.0.0 (linux64) logging started Tue Mar 31 15:06:50 2026
+
+Set parameter LogFile to value "logs/N=12_layers=3_presolve_on/N=12/seed=13/n_qaoa_layers=3/baseline.log"
+Set parameter MIPGap to value 1e-06
+Set parameter Threads to value 8
+Gurobi Optimizer version 13.0.0 build v13.0.0rc1 (linux64 - "Oracle Linux Server 9.7")
+
+CPU model: AMD EPYC 7643 48-Core Processor, instruction set [SSE2|AVX|AVX2]
+Thread count: 48 physical cores, 96 logical processors, using up to 8 threads
+
+Non-default parameters:
+MIPGap  1e-06
+Threads  8
+
+Optimize a model with 1 rows, 12 columns and 12 nonzeros (Min)
+Model fingerprint: 0xe0dedc4d
+Model has 12 linear objective coefficients and an objective constant of 9.89763826453327e-13
+Model has 66 quadratic objective terms
+Variable types: 0 continuous, 12 integer (12 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+00]
+  Objective range  [8e+00, 1e+01]
+  QObjective range [1e-02, 8e+00]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [6e+00, 6e+00]
+Found heuristic solution: objective 41.3131821
+Presolve time: 0.00s
+Presolved: 67 rows, 78 columns, 210 nonzeros
+Variable types: 0 continuous, 78 integer (78 binary)
+
+Root relaxation: objective 9.870993e-13, 7 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0    0.00000    0   12   41.31318    0.00000   100%     -    0s
+H    0     0                      35.4448673    0.00000   100%     -    0s
+H    0     0                      35.2766886    0.00000   100%     -    0s
+H    0     0                      32.0983568    0.00000   100%     -    0s
+H    0     0                      31.6196955    0.00000   100%     -    0s
+     0     0   19.93185    0   17   31.61970   19.93185  37.0%     -    0s
+     0     0   21.38296    0   32   31.61970   21.38296  32.4%     -    0s
+     0     0   26.94503    0   51   31.61970   26.94503  14.8%     -    0s
+     0     0   27.10665    0   51   31.61970   27.10665  14.3%     -    0s
+     0     2   27.10665    0   51   31.61970   27.10665  14.3%     -    0s
+
+Cutting planes:
+  Gomory: 4
+  Dual implied bound: 13
+  MIR: 9
+  RLT: 8
+
+Explored 33 nodes (863 simplex iterations) in 0.03 seconds (0.02 work units)
+Thread count was 8 (of 96 available processors)
+
+Solution count 5: 31.6197 32.0984 35.2767 ... 41.3132
+
+Optimal solution found (tolerance 1.00e-06)
+Best objective 3.161969546942e+01, best bound 3.161969546942e+01, gap 0.0000%
+
+User-callback calls 252, time in user-callback 0.00 sec
+
+Gurobi 13.0.0 (linux64) logging started Tue Mar 31 15:10:49 2026
+
+Set parameter LogFile to value "logs/N=12_layers=3_presolve_on/N=12/seed=13/n_qaoa_layers=3/baseline.log"
+Set parameter MIPGap to value 1e-06
+Set parameter Threads to value 8
+Gurobi Optimizer version 13.0.0 build v13.0.0rc1 (linux64 - "Oracle Linux Server 9.7")
+
+CPU model: AMD EPYC 7643 48-Core Processor, instruction set [SSE2|AVX|AVX2]
+Thread count: 48 physical cores, 96 logical processors, using up to 8 threads
+
+Non-default parameters:
+MIPGap  1e-06
+Threads  8
+
+Optimize a model with 1 rows, 12 columns and 12 nonzeros (Min)
+Model fingerprint: 0xe0dedc4d
+Model has 12 linear objective coefficients and an objective constant of 9.89763826453327e-13
+Model has 66 quadratic objective terms
+Variable types: 0 continuous, 12 integer (12 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+00]
+  Objective range  [8e+00, 1e+01]
+  QObjective range [1e-02, 8e+00]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [6e+00, 6e+00]
+Found heuristic solution: objective 41.3131821
+Presolve time: 0.00s
+Presolved: 67 rows, 78 columns, 210 nonzeros
+Variable types: 0 continuous, 78 integer (78 binary)
+
+Root relaxation: objective 9.870993e-13, 7 iterations, 0.00 seconds (0.00 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0    0.00000    0   12   41.31318    0.00000   100%     -    0s
+H    0     0                      35.4448673    0.00000   100%     -    0s
+H    0     0                      35.2766886    0.00000   100%     -    0s
+H    0     0                      32.0983568    0.00000   100%     -    0s
+H    0     0                      31.6196955    0.00000   100%     -    0s
+     0     0   19.93185    0   17   31.61970   19.93185  37.0%     -    0s
+     0     0   21.38296    0   32   31.61970   21.38296  32.4%     -    0s
+     0     0   26.94503    0   51   31.61970   26.94503  14.8%     -    0s
+     0     0   27.10665    0   51   31.61970   27.10665  14.3%     -    0s
+     0     2   27.10665    0   51   31.61970   27.10665  14.3%     -    0s
+
+Cutting planes:
+  Gomory: 4
+  Dual implied bound: 13
+  MIR: 9
+  RLT: 8
+
+Explored 33 nodes (863 simplex iterations) in 0.04 seconds (0.02 work units)
+Thread count was 8 (of 96 available processors)
+
+Solution count 5: 31.6197 32.0984 35.2767 ... 41.3132
+
+Optimal solution found (tolerance 1.00e-06)
+Best objective 3.161969546942e+01, best bound 3.161969546942e+01, gap 0.0000%
+
+User-callback calls 256, time in user-callback 0.00 sec

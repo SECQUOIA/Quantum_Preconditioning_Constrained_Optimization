@@ -1,13 +1,32 @@
 from __future__ import annotations
-
-from dataclasses import asdict, dataclass
+import json
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from .instance import IsingInstance, bisection_violation, eval_ising, read_dat, z_from_x
 
 
-@dataclass(frozen=True)
+@dataclass
 class SolveResult:
+    """Container for one Gurobi solve result.
+    
+    Attributes
+    ----------
+    name : str
+        Run name.
+    n : int
+        Problem size.
+    objective_model : float
+        Objective value in the solved model.
+    objective_baseline : float
+        Solution value evaluated with the original objective.
+    runtime_sec : float
+        Total solver runtime in seconds.
+    time_to_best_sec : float
+        Callback time of the final incumbent for the solved model.
+    trajectory : list of tuple
+        Incumbent callback events as ``(time_sec, original_objective)``.
+    """
     name: str
     n: int
     objective_model: float
@@ -21,15 +40,23 @@ class SolveResult:
     z_bits: List[int]
     sum_z: int
     presolve: bool
+    # Each entry is (wall_time_sec, original_obj_value) for every incumbent
+    # found by the solver (evaluated against the *original* baseline objective).
+    trajectory: List[Tuple[float, float]] = field(default_factory=list)
 
     def to_row(self) -> Dict[str, object]:
+        """Serialize the solve result to a CSV-friendly row dictionary."""
         d = asdict(self)
         d["x_bits"] = "".join(str(b) for b in self.x_bits)
         d["z_bits"] = "".join("+" if z == 1 else "-" for z in self.z_bits)
+        d["trajectory"] = json.dumps(
+            [[round(t, 6), round(v, 8)] for t, v in self.trajectory]
+        )
         return d
 
 
 def _ising_to_qubo(instance: IsingInstance):
+    """Convert an Ising objective in spins to a binary QUBO expression."""
     constant = float(instance.constant)
     linear: Dict[int, float] = {}
     quadratic: Dict[Tuple[int, int], float] = {}
@@ -61,6 +88,7 @@ def solve_bisection_ip(
     log_file: Optional[str | Path] = None,
     presolve: bool = True,
 ) -> SolveResult:
+    """Solve a balanced bisection integer program with Gurobi."""
     try:
         import gurobipy as gp
         from gurobipy import GRB
@@ -97,10 +125,18 @@ def solve_bisection_ip(
     model.addConstr(gp.quicksum(x[i] for i in range(n)) == n / 2, name="bisection")
 
     best_t: List[float] = []
+    trajectory: List[Tuple[float, float]] = []
 
     def _cb(model, where):
+        """Record incumbent callback events during Gurobi optimization."""
         if where == GRB.Callback.MIPSOL:
             t = float(model.cbGet(GRB.Callback.RUNTIME))
+            # Evaluate each preconditioned problem's feasible solution against the original objective.
+            x_sol = [model.cbGetSolution(x[i]) for i in range(n)]
+            z_sol = z_from_x([int(round(v)) for v in x_sol])
+            orig_obj = eval_ising(baseline_instance, z_sol)
+            trajectory.append((t, orig_obj))
+            # Track time of last preconditioned-objective incumbent (time-to-best).
             if best_t:
                 best_t[0] = t
             else:
@@ -127,6 +163,7 @@ def solve_bisection_ip(
         z_bits=z_bits,
         sum_z=bisection_violation(z_bits),
         presolve=presolve,
+        trajectory=trajectory,
     )
 
 
@@ -142,12 +179,14 @@ def solve_from_paths(
     log_dir: Optional[str | Path] = None,
     presolve: bool = True,
 ) -> List[SolveResult]:
+    """Solve baseline and preconditioned instances loaded from filesystem paths."""
     baseline = read_dat(baseline_path)
     log_path = Path(log_dir) if log_dir else None
     if log_path:
         log_path.mkdir(parents=True, exist_ok=True)
 
     def _solve(inst, name, penalty):
+        """Solve one instance path using shared baseline and solver settings."""
         return solve_bisection_ip(
             inst, baseline, name=name, penalty=penalty,
             time_limit_sec=time_limit_sec, mip_gap=mip_gap,
