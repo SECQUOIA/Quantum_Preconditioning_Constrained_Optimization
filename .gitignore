@@ -19,5 +19,6 @@ venv/
 .vscode/
 
 # Keep results CSVs, but ignore verbose solver logs by default
+logs/
 results/logs_*/
 results/**/*.log
