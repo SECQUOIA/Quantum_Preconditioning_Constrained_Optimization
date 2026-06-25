@@ -339,8 +339,8 @@ def _resolve_existing_data_root(
                 candidates.append((results_dir.parent / tail).resolve())
 
     # Standard local repo location.
-    candidates.append((repo_root / "one_equality" / "complete_random").resolve())
-    candidates.append((results_dir.parent / "one_equality" / "complete_random").resolve())
+    candidates.append((repo_root / "one_equality_new" / "complete_random").resolve())
+    candidates.append((results_dir.parent / "one_equality_new" / "complete_random").resolve())
 
     seen: set[Path] = set()
     for candidate in candidates:
@@ -608,11 +608,114 @@ def load_family_comparison_data(
     return pd.concat(frames, ignore_index=True)
 
 
+def _expand_summary_trajectories(
+    summary_df: pd.DataFrame,
+    n_val: int,
+    layers_val: float,
+    presolve: bool,
+) -> pd.DataFrame:
+    """Expand the 'trajectory' JSON column of a summary dataframe into long-format rows.
+
+    Used for p=inf, which stores trajectories inline in the summary CSV rather
+    than in a separate trajectories file.
+    """
+    rows: list[dict] = []
+    for row in summary_df.itertuples(index=False):
+        raw = getattr(row, "trajectory", None)
+        if pd.isna(raw) or not raw:
+            continue
+        try:
+            events = json.loads(str(raw))
+        except (TypeError, ValueError):
+            continue
+        running_best = float("inf")
+        for idx, event in enumerate(events):
+            t, v = float(event[0]), float(event[1])
+            running_best = min(running_best, v)
+            rows.append({
+                "seed": int(row.seed),
+                "layers": layers_val,
+                "name": str(row.name),
+                "penalty": getattr(row, "penalty", None),
+                "presolve": bool(presolve),
+                "event_idx": idx,
+                "time_sec": t,
+                "orig_obj": v,
+                "running_best_orig_obj": running_best,
+                "n": n_val,
+                "preconditioner_family": "quantum",
+            })
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+def load_family_comparison_trajectory_data(
+    problem_sizes: Iterable[int],
+    family: str,
+    param_values: Iterable[int],
+    presolve: bool,
+    results_dir: Path | str = "../results",
+) -> pd.DataFrame:
+    """Load trajectory data across problem sizes and family parameter values.
+
+    For quantum p=inf, trajectories are expanded from the summary CSV since
+    no separate trajectory file exists for that case.
+    """
+    results_dir = Path(results_dir)
+    mode = "on" if presolve else "off"
+    frames: list[pd.DataFrame] = []
+    for param in param_values:
+        for n_val in problem_sizes:
+            if family == "quantum" and np.isinf(float(param)):
+                summary_path = results_dir / f"N={int(n_val)}_quantum_layers=inf_presolve_{mode}.csv"
+                if not summary_path.exists():
+                    continue
+                expanded = _expand_summary_trajectories(
+                    pd.read_csv(summary_path), int(n_val), float("inf"), presolve
+                )
+                if not expanded.empty:
+                    frames.append(expanded)
+                continue
+
+            try:
+                traj_path = _first_existing_path(
+                    _trajectory_csv_candidates(
+                        results_dir,
+                        int(n_val),
+                        presolve,
+                        family=family,
+                        layers=param if family == "quantum" else None,
+                        sweeps=param if family == "classical" else None,
+                    ),
+                    f"trajectory CSV for N={n_val}, family={family}, param={param}, presolve={mode}",
+                )
+            except FileNotFoundError:
+                continue
+            df = pd.read_csv(traj_path)
+            df = _inject_family_metadata(
+                df,
+                family=family,
+                layers=param if family == "quantum" else None,
+                sweeps=param if family == "classical" else None,
+            )
+            df = _filter_df_to_family_param(
+                df,
+                family=family,
+                layers=param if family == "quantum" else None,
+                sweeps=param if family == "classical" else None,
+            )
+            df = df[df["presolve"] == bool(presolve)].copy()
+            df["n"] = int(n_val)
+            frames.append(df)
+    if not frames:
+        raise ValueError(f"No {family} comparison trajectory data could be loaded.")
+    return pd.concat(frames, ignore_index=True)
+
+
 def load_quantum_infinite_depth_comparison_data(
     problem_sizes: Iterable[int],
     presolve: bool,
     results_dir: Path | str = "../results",
-    data_root: Path | str = "one_equality/complete_random",
+    data_root: Path | str = "one_equality_new/complete_random",
     threads: Optional[int] = None,
     mip_gap: Optional[float] = None,
     gurobi_seed: Optional[int] = None,
@@ -777,8 +880,8 @@ def prepare_penalty_metrics(df: pd.DataFrame) -> pd.DataFrame:
 
 def plot_ratio_minus_one(pre: pd.DataFrame, cfg: PlotConfig) -> plt.Figure:
     """Plot approximation ratio minus one against penalty for one setting."""
-    fig, ax = plt.subplots()
-    palette = {True: "#1f77b4", False: "#ff7f0e"}
+    fig, ax = plt.subplots(figsize=(7.1, 5.5))
+    palette = {True: "#42C6C6", False: "#F08AA2"}
 
     for presolve in [True, False]:
         sub = pre[pre["presolve"] == presolve]
@@ -796,18 +899,30 @@ def plot_ratio_minus_one(pre: pd.DataFrame, cfg: PlotConfig) -> plt.Figure:
             agg["mean"],
             yerr=agg["sem"],
             fmt="o-",
-            capsize=3,
-            linewidth=1.8,
-            markersize=5,
+            capsize=4,
+            capthick=1.2,
+            elinewidth=1.2,
+            linewidth=2.3,
+            markersize=7.0,
+            markeredgewidth=1.1,
+            markeredgecolor=palette[presolve],
             color=palette[presolve],
             label="Presolve on" if presolve else "Presolve off",
         )
 
-    ax.axhline(0.0, color="black", linestyle="--", linewidth=1.0)
-    ax.set_xlabel("Penalty")
-    ax.set_ylabel("Approx Ratio - 1")
-    ax.set_title(f"Approx Ratio - 1 vs Penalty ({_cfg_setting_suffix(cfg)})")
-    ax.legend(ncol=2)
+    ax.axhline(0.0, color="#353B55", linestyle="--", linewidth=1.4, alpha=0.65)
+    ax.set_xlabel("Penalty", fontsize=14)
+    ax.set_ylabel("Approx Ratio - 1", fontsize=14)
+    ax.set_title(f"Approx Ratio - 1 vs Penalty ({_cfg_setting_suffix(cfg)})", fontsize=15)
+    for side in ["left", "bottom", "top", "right"]:
+        ax.spines[side].set_visible(True)
+        ax.spines[side].set_alpha(0.85)
+        ax.spines[side].set_linewidth(1.1)
+    ax.tick_params(axis="both", which="major", direction="in", top=True, right=True, length=7, width=1.1, labelsize=12)
+    ax.tick_params(axis="both", which="minor", direction="in", top=True, right=True, length=3.5, width=0.9)
+    ax.grid(axis="x", visible=False)
+    ax.grid(axis="y", which="major", linestyle="--", linewidth=0.8, alpha=0.45)
+    ax.legend(ncol=1, frameon=True, framealpha=0.88, edgecolor="#CCCCCC", fontsize=10, loc="upper right", handlelength=2.4, handletextpad=0.6)
     fig.tight_layout()
     return fig
 
@@ -979,25 +1094,33 @@ def plot_layer_comparison(
     y_log: bool = True,
     common_converged_only: bool = False,
     annotate_counts: bool = False,
+    traj_df: Optional[pd.DataFrame] = None,
+    eps_threshold: Optional[float] = None,
 ) -> plt.Figure:
     """Plot quantum scaling across QAOA layer counts and problem sizes."""
-    if metric not in {"runtime_sec", "time_to_best_sec"}:
-        raise ValueError("metric must be one of: runtime_sec, time_to_best_sec")
-
-    _require_columns(
-        summary_df,
-        [
-            "name",
-            "penalty",
-            "presolve",
-            "seed",
-            "layers",
-            "n",
-            "objective_baseline",
-            metric,
-        ],
-        "layer comparison summary data",
-    )
+    if eps_threshold is None:
+        if metric not in {"runtime_sec", "time_to_best_sec"}:
+            raise ValueError("metric must be one of: runtime_sec, time_to_best_sec")
+        _require_columns(
+            summary_df,
+            [
+                "name",
+                "penalty",
+                "presolve",
+                "seed",
+                "layers",
+                "n",
+                "objective_baseline",
+                metric,
+            ],
+            "layer comparison summary data",
+        )
+    else:
+        _require_columns(
+            summary_df,
+            ["name", "penalty", "presolve", "seed", "layers", "n", "objective_baseline"],
+            "layer comparison summary data",
+        )
 
     sub = summary_df[summary_df["presolve"] == bool(presolve)].copy()
     if sub.empty:
@@ -1007,7 +1130,6 @@ def plot_layer_comparison(
     baseline_rows = sub[sub["name"] == "baseline"].copy()
     if baseline_rows.empty:
         raise ValueError("No baseline rows found for layer comparison.")
-    value_col = metric
 
     # Baseline rows are duplicated across layer-specific files; collapse by (n, seed).
     baseline_opt = (
@@ -1016,6 +1138,37 @@ def plot_layer_comparison(
         .rename(columns={"objective_baseline": "baseline_opt"})
     )
     total_seed_counts = baseline_opt.groupby("n")["seed"].nunique().to_dict()
+
+    if traj_df is not None and eps_threshold is not None:
+        value_col = "eps_hit_time"
+        _bl_lookup = {
+            (int(r.n), int(r.seed)): float(r.baseline_opt)
+            for r in baseline_opt.itertuples()
+            if pd.notna(getattr(r, "baseline_opt", None))
+        }
+        _t = traj_df.copy()
+        _t["_bopt"] = [_bl_lookup.get((int(n), int(s))) for n, s in zip(_t["n"], _t["seed"])]
+        _t = _t[_t["_bopt"].notna()].copy()
+        _t["_thr"] = _t["_bopt"] + _t["_bopt"].abs() * eps_threshold
+        _t["_pk"] = _t["penalty"].fillna(-1e9)
+        sub["_pk"] = sub["penalty"].fillna(-1e9)
+        _gcols = ["n", "name", "seed", "_pk"] + (["layers"] if "layers" in _t.columns else [])
+        _eps_rows: list[dict] = []
+        for _keys, _grp in _t.groupby(_gcols):
+            _thr_val = float(_grp["_thr"].iloc[0])
+            _sg = _grp.sort_values("event_idx")
+            _hit = _sg.loc[_sg["running_best_orig_obj"] <= _thr_val + 1e-8, "time_sec"]
+            _kd = dict(zip(_gcols, _keys if isinstance(_keys, tuple) else (_keys,)))
+            _kd["eps_hit_time"] = float(_hit.iloc[0]) if not _hit.empty else float("nan")
+            _eps_rows.append(_kd)
+        _eps_df = pd.DataFrame(_eps_rows)
+        _mcols = [c for c in _gcols if c in sub.columns]
+        sub = sub.merge(_eps_df[_mcols + ["eps_hit_time"]], on=_mcols, how="left")
+        sub = sub.drop(columns=["_pk"])
+        baseline_rows = sub[sub["name"] == "baseline"].copy()
+    else:
+        value_col = metric
+
     raw_pre_rows = sub[sub["name"] != "baseline"].copy()
     raw_pre_rows = raw_pre_rows.merge(baseline_opt, on=["n", "seed", "presolve"], how="left")
     raw_pre_rows["reached_baseline_opt"] = (
@@ -1023,10 +1176,16 @@ def plot_layer_comparison(
         & raw_pre_rows["objective_baseline"].notna()
         & (raw_pre_rows["objective_baseline"] <= raw_pre_rows["baseline_opt"] + 1e-8)
     )
-    pre_rows = raw_pre_rows[raw_pre_rows["reached_baseline_opt"]].copy() if common_converged_only else raw_pre_rows.copy()
+    pre_rows = (
+        raw_pre_rows[raw_pre_rows["reached_baseline_opt"]].copy()
+        if common_converged_only and eps_threshold is None
+        else raw_pre_rows.copy()
+    )
 
     fig, ax = plt.subplots(figsize=(7.1, 5.5))
-    if metric == "runtime_sec":
+    if eps_threshold is not None:
+        y_label = f"Time to ε = {eps_threshold * 100:g}%-optimal (s)"
+    elif metric == "runtime_sec":
         y_label = "Runtime"
     elif metric == "time_to_best_sec":
         y_label = "Time to best solution"
@@ -1049,7 +1208,7 @@ def plot_layer_comparison(
         if layer_rows.empty:
             continue
 
-        if common_converged_only:
+        if common_converged_only and eps_threshold is None:
             seed_best = (
                 layer_rows.sort_values(["n", "seed", value_col, "penalty"])
                 .groupby(["n", "seed"], as_index=False)
@@ -1139,7 +1298,7 @@ def plot_layer_comparison(
         y_fit = base_scale * (base_order ** x_fit)
         ax.plot(x_fit, y_fit, color=baseline_style["color"], linewidth=2.8, alpha=0.8, zorder=1)
 
-    if metric == "time_to_best_sec":
+    if eps_threshold is None and metric == "time_to_best_sec":
         baseline_runtime_seed = (
             baseline_rows.groupby(["n", "seed"], as_index=False)["runtime_sec"]
             .mean()
@@ -1258,7 +1417,7 @@ def plot_layer_comparison(
     ax.tick_params(axis="both", which="major", direction="in", top=True, right=True, length=7, width=1.1, labelsize=12)
     ax.tick_params(axis="both", which="minor", direction="in", top=True, right=True, length=3.5, width=0.9)
     handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles, labels, frameon=False, fontsize=10, loc="upper left", handlelength=2.4, handletextpad=0.6)
+    ax.legend(handles, labels, frameon=True, framealpha=0.88, edgecolor="#CCCCCC", fontsize=10, loc="upper left", handlelength=2.4, handletextpad=0.6)
     fig.tight_layout()
     return fig
 
@@ -1272,6 +1431,8 @@ def plot_family_param_comparison(
     y_log: bool = True,
     common_converged_only: bool = False,
     annotate_counts: bool = False,
+    traj_df: Optional[pd.DataFrame] = None,
+    eps_threshold: Optional[float] = None,
 ) -> plt.Figure:
     """Dispatch family scaling plots for quantum layers or classical sweeps."""
     if family == "quantum":
@@ -1283,6 +1444,8 @@ def plot_family_param_comparison(
             y_log=y_log,
             common_converged_only=common_converged_only,
             annotate_counts=annotate_counts,
+            traj_df=traj_df,
+            eps_threshold=eps_threshold,
         )
     if family == "classical":
         return plot_sweep_comparison(
@@ -1445,10 +1608,10 @@ def plot_sweep_comparison(
         ax.yaxis.set_major_locator(mticker.LogLocator(base=10))
         ax.yaxis.set_minor_locator(mticker.LogLocator(base=10, subs=np.arange(2, 10) * 0.1))
         ax.yaxis.set_minor_formatter(mticker.NullFormatter())
-    ax.tick_params(axis="both", which="major", direction="in", top=True, right=True, length=6, width=1.0)
-    ax.tick_params(axis="both", which="minor", direction="in", top=True, right=True, length=3, width=0.8)
+    ax.tick_params(axis="both", which="major", direction="in", top=True, right=True, length=7, width=1.1, labelsize=12)
+    ax.tick_params(axis="both", which="minor", direction="in", top=True, right=True, length=3.5, width=0.9)
     handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles, labels, frameon=False, fontsize=8, loc="upper left", handlelength=2.0, handletextpad=0.5)
+    ax.legend(handles, labels, frameon=True, framealpha=0.88, edgecolor="#CCCCCC", fontsize=10, loc="upper left", handlelength=2.4, handletextpad=0.6)
     fig.tight_layout()
     return fig
 
@@ -1588,9 +1751,9 @@ def plot_quantum_vs_classical_comparison(
         ax.yaxis.set_major_locator(mticker.LogLocator(base=10))
         ax.yaxis.set_minor_locator(mticker.LogLocator(base=10, subs=np.arange(2, 10) * 0.1))
         ax.yaxis.set_minor_formatter(mticker.NullFormatter())
-    ax.tick_params(axis="both", which="major", direction="in", top=True, right=True, length=6, width=1.0)
-    ax.tick_params(axis="both", which="minor", direction="in", top=True, right=True, length=3, width=0.8)
-    ax.legend(frameon=False, fontsize=8, loc="upper left", handlelength=2.0, handletextpad=0.5)
+    ax.tick_params(axis="both", which="major", direction="in", top=True, right=True, length=7, width=1.1, labelsize=12)
+    ax.tick_params(axis="both", which="minor", direction="in", top=True, right=True, length=3.5, width=0.9)
+    ax.legend(frameon=True, framealpha=0.88, edgecolor="#CCCCCC", fontsize=10, loc="upper left", handlelength=2.4, handletextpad=0.6)
     fig.tight_layout()
     return fig
 
@@ -1657,6 +1820,9 @@ def plot_mipsol_ratio_minus_one(
     presolve_text = "presolve on" if presolve else "presolve off"
     fig, ax = plt.subplots(figsize=(9.6, 5.8))
     variant_names = _sorted_variant_names(per_seed.keys(), include_baseline=True)
+    _plt_palette = ["#353B55", "#42C6C6", "#F08AA2", "#F2C94C", "#6C4AB6",
+                    "#2CA58D", "#3FA7D6", "#7A77B9", "#A9714B", "#E67E22"]
+    _color_map = {nm: _plt_palette[i % len(_plt_palette)] for i, nm in enumerate(variant_names)}
     positive_times = [
         float(t)
         for variants in per_seed.values()
@@ -1698,15 +1864,16 @@ def plot_mipsol_ratio_minus_one(
 
             is_baseline = name == "baseline"
             label = "baseline (original problem)" if is_baseline else name.replace("precond_", "")
+            _clr = _color_map[name]
             ax.plot(
                 t_grid[valid],
                 mean[valid],
                 linewidth=2.8 if is_baseline else 2.3,
-                color="black" if is_baseline else None,
+                color=_clr,
                 label=label,
             )
             if not is_baseline:
-                ax.fill_between(t_grid[valid], q25[valid], q75[valid], alpha=0.16, linewidth=0)
+                ax.fill_between(t_grid[valid], q25[valid], q75[valid], alpha=0.16, linewidth=0, color=_clr)
 
         title_extra = f"n_seeds={len(seeds)}"
     else:
@@ -1724,13 +1891,14 @@ def plot_mipsol_ratio_minus_one(
             ratio_gap = [v / baseline_final - 1.0 for v in vals]
             is_baseline = name == "baseline"
             label = "baseline (original problem)" if is_baseline else name.replace("precond_", "")
+            _clr = _color_map[name]
             if value_col == "running_best_orig_obj":
                 ax.step(
                     times_plot,
                     ratio_gap,
                     where="post",
                     linewidth=2.8 if is_baseline else 2.3,
-                    color="black" if is_baseline else None,
+                    color=_clr,
                     label=label,
                 )
             else:
@@ -1740,7 +1908,7 @@ def plot_mipsol_ratio_minus_one(
                     linewidth=2.0 if is_baseline else 1.8,
                     marker="o",
                     markersize=4.6,
-                    color="black" if is_baseline else None,
+                    color=_clr,
                     label=label,
                 )
 
@@ -1748,27 +1916,33 @@ def plot_mipsol_ratio_minus_one(
 
     ax.axhline(0.0, color="black", linestyle="--", linewidth=1.4, label="Baseline optimum")
     ax.set_xscale("log")
-    ax.set_xlabel("Incumbent discovery time (s)")
-    y_series = "callback objective" if value_col == "orig_obj" else "running best original objective"
-    ax.set_ylabel("Approx Ratio - 1")
+    ax.set_xlabel("Incumbent discovery time (s)", fontsize=14)
+    ax.set_ylabel("Approx Ratio - 1", fontsize=14)
     title_setting = f"N={cfg.n}, p={_format_quantum_depth_label(cfg.layers)}" if cfg.family == "quantum" else f"N={cfg.n}, s={cfg.sweeps}"
     ax.set_title(f"{presolve_text}, {title_extra}, {title_setting}", fontsize=15)
-    ax.tick_params(axis="both", which="major", labelsize=12)
-    ax.tick_params(axis="both", which="minor", labelsize=12)
-    ax.xaxis.label.set_size(14)
-    ax.yaxis.label.set_size(14)
+    for side in ["left", "bottom", "top", "right"]:
+        ax.spines[side].set_visible(True)
+        ax.spines[side].set_alpha(0.85)
+        ax.spines[side].set_linewidth(1.1)
+    ax.xaxis.set_major_locator(mticker.LogLocator(base=10))
+    ax.xaxis.set_minor_locator(mticker.LogLocator(base=10, subs=np.arange(2, 10) * 0.1))
+    ax.xaxis.set_minor_formatter(mticker.NullFormatter())
+    ax.grid(axis="x", visible=False)
+    ax.grid(axis="y", which="major", linestyle="--", linewidth=0.8, alpha=0.45)
+    ax.tick_params(axis="both", which="major", direction="in", top=True, right=True, length=7, width=1.1, labelsize=12)
+    ax.tick_params(axis="both", which="minor", direction="in", top=True, right=True, length=3.5, width=0.9)
     ax.legend(
-        fontsize=12,
-        ncol=3,
-        loc="lower center",
-        bbox_to_anchor=(0.5, 1.02),
-        frameon=False,
+        fontsize=10,
+        ncol=2,
+        loc="upper right",
+        frameon=True,
+        framealpha=0.88,
+        edgecolor="#CCCCCC",
         handlelength=2.4,
         columnspacing=1.2,
-        handletextpad=0.7,
-        borderaxespad=0.0,
+        handletextpad=0.6,
     )
-    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.82))
+    fig.tight_layout()
     return fig
 
 
@@ -1796,13 +1970,16 @@ def plot_hit_time_vs_penalty(
     if pfilter is not None:
         variant_sub = variant_sub[variant_sub["penalty_round"].round(3).isin(pfilter)].copy()
 
-    fig, axes = plt.subplots(1, len(eps), figsize=(max(6.2 * len(eps), 11.0), 5.8), sharey=True)
+    _fig_w = max(6.2 * len(eps), 11.0)
+    _panel_w = _fig_w / len(eps)
+    _fs = max(1.0, _panel_w / 7.1)  # scale all text relative to 7.1" reference
+    fig, axes = plt.subplots(1, len(eps), figsize=(_fig_w, 5.8), sharey=True)
     if len(eps) == 1:
         axes = [axes]
 
     presolve_text = "presolve on" if presolve else "presolve off"
-    outer_bar_color = "#9FB8D5"
-    inner_bar_color = "#1f77b4"
+    outer_bar_color = "#9ECFD8"
+    inner_bar_color = "#42C6C6"
     miss_color = "#A23B3B"
     n_seeds = int(baseline_sub["seed"].nunique())
     penalty_factor = (
@@ -1811,7 +1988,7 @@ def plot_hit_time_vs_penalty(
         else 10.0
     )
 
-    baseline_handle = plt.Line2D([0], [0], color="#6B6B6B", linewidth=1.6)
+    baseline_handle = plt.Line2D([0], [0], color="#353B55", linewidth=2.0)
     outer_patch = plt.Rectangle((0, 0), 1, 1, facecolor=outer_bar_color, edgecolor="none", alpha=0.95)
     inner_patch = plt.Rectangle((0, 0), 1, 1, facecolor=inner_bar_color, edgecolor="none", alpha=0.98)
     legend_handles = [baseline_handle, outer_patch, inner_patch]
@@ -1863,8 +2040,9 @@ def plot_hit_time_vs_penalty(
                 penalized_heights,
                 yerr=penalized_sems,
                 fmt="none",
-                capsize=3,
-                linewidth=1.6,
+                capsize=4,
+                capthick=1.2,
+                elinewidth=1.2,
                 color="black",
                 zorder=3,
             )
@@ -1885,7 +2063,8 @@ def plot_hit_time_vs_penalty(
                     yerr=sems[solved_mask],
                     fmt="none",
                     capsize=4,
-                    linewidth=1.5,
+                    capthick=1.2,
+                    elinewidth=1.2,
                     color="black",
                     zorder=5,
                 )
@@ -1912,7 +2091,7 @@ def plot_hit_time_vs_penalty(
                     )
 
             ax.set_xticks(x)
-            ax.set_xticklabels([f"pen={pen:0.3f}" for pen in grouped["penalty_round"]], rotation=30, ha="right")
+            ax.set_xticklabels([f"pen={pen:.2f}" for pen in grouped["penalty_round"]], rotation=45, ha="right", fontsize=12)
         else:
             grouped = pd.DataFrame()
 
@@ -1921,51 +2100,58 @@ def plot_hit_time_vs_penalty(
         if bl_n > 0 and not np.isnan(bl_mean):
             ax.axhline(
                 bl_mean,
-                color="#6B6B6B",
+                color="#353B55",
                 linestyle="-",
-                linewidth=1.6,
+                linewidth=round(2.0 * _fs, 1),
                 label="Baseline time to reach threshold",
                 zorder=4,
             )
             if bl_sem > 0:
-                ax.axhspan(bl_mean - bl_sem, bl_mean + bl_sem, color="#6B6B6B", alpha=0.12, zorder=1)
+                ax.axhspan(bl_mean - bl_sem, bl_mean + bl_sem, color="#353B55", alpha=0.12, zorder=1)
             y_max = max(y_max, bl_mean + bl_sem)
 
-        ax.set_title(rf"$\epsilon = {_format_epsilon_label(eps_value)}$", fontsize=15)
+        ax.set_title(rf"$\epsilon = {_format_epsilon_label(eps_value)}$", fontsize=round(15 * _fs))
         if ax is axes[0]:
-            ax.set_ylabel(r"$\epsilon$-hit time (s)")
-        ax.tick_params(axis="both", labelsize=12)
+            ax.set_ylabel(r"$\epsilon$-hit time (s)", fontsize=round(14 * _fs))
+        for side in ["left", "bottom", "top", "right"]:
+            ax.spines[side].set_visible(True)
+            ax.spines[side].set_alpha(0.85)
+            ax.spines[side].set_linewidth(round(1.1 * _fs, 1))
+        ax.tick_params(axis="both", which="major", direction="in", top=True, right=True, length=round(7 * _fs), width=round(1.1 * _fs, 1), labelsize=round(12 * _fs))
+        ax.tick_params(axis="x", which="major", labelsize=12)  # rotated labels: fixed size
+        ax.tick_params(axis="both", which="minor", direction="in", top=True, right=True, length=round(3.5 * _fs), width=round(0.9 * _fs, 1))
         ax.grid(axis="x", visible=False)
-        ax.spines["left"].set_alpha(0.35)
-        ax.spines["bottom"].set_alpha(0.35)
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
+        ax.grid(axis="y", which="major", linestyle="--", linewidth=0.8, alpha=0.45)
         if y_log:
             ax.set_yscale("log")
+            ax.yaxis.set_major_locator(mticker.LogLocator(base=10))
+            ax.yaxis.set_minor_locator(mticker.LogLocator(base=10, subs=np.arange(2, 10) * 0.1))
+            ax.yaxis.set_minor_formatter(mticker.NullFormatter())
             if y_limits is not None:
                 ax.set_ylim(*y_limits)
         elif y_max > 0:
             y_top = max([y_max] + text_tops) if text_tops else y_max
             ax.set_ylim(bottom=0.0, top=y_top + max(0.01, 0.05 * y_top))
 
+    fig.suptitle(
+        f"{presolve_text}, n_seeds={n_seeds}, {_cfg_setting_suffix(cfg)}",
+        fontsize=round(15 * _fs),
+    )
+    fig.tight_layout(w_pad=1.1)
     if legend_handles:
         fig.legend(
             legend_handles,
             legend_labels,
-            loc="upper center",
-            bbox_to_anchor=(0.5, 0.935),
-            ncol=min(2, len(legend_labels)),
-            frameon=False,
-            fontsize=12,
+            loc="lower center",
+            bbox_to_anchor=(0.5, 0.0),
+            ncol=2,
+            frameon=True,
+            framealpha=0.90,
+            edgecolor="#CCCCCC",
+            fontsize=round(10 * _fs),
             handlelength=2.4,
-            handletextpad=0.7,
-            columnspacing=1.4,
+            handletextpad=0.6,
+            columnspacing=1.6,
         )
-
-    fig.suptitle(
-        f"{presolve_text}, n_seeds={n_seeds}, {_cfg_setting_suffix(cfg)}",
-        fontsize=15,
-        y=0.98,
-    )
-    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.88), w_pad=1.1)
+        fig.subplots_adjust(bottom=min(0.14 * _fs, 0.26))
     return fig

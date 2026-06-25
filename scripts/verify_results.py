@@ -38,8 +38,8 @@ def main() -> int:
     ap.add_argument(
         "--data-root",
         type=Path,
-        default=Path("one_equality") / "complete_random",
-        help="Root data folder (default: one_equality/complete_random)",
+        default=Path("one_equality_new") / "complete_random",
+        help="Root data folder (default: one_equality_new/complete_random)",
     )
     ap.add_argument("--n", type=int, required=True, help="Problem size N")
     ap.add_argument("--seed", type=int, required=True, help="Seed folder")

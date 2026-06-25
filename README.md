@@ -2,8 +2,8 @@
 
 This repo contains a tiny workflow to compare:
 
-- **Baseline** graph bi-partioning objective from `one_equality/../N=.../seed=.../problem.dat`
-- **Preconditioned** objectives from `one_equality/../N=.../seed=.../n_qaoa_layers=.../preconditioned_problem_pen=...dat`
+- **Baseline** graph bi-partioning objective from `one_equality_new/../N=.../seed=.../problem.dat`
+- **Preconditioned** objectives from `one_equality_new/../N=.../seed=.../n_qaoa_layers=.../preconditioned_problem_pen=...dat`
 
 Both are solved with the **same hard bi-partioning constraint** (equal-size partition):
 
@@ -27,7 +27,7 @@ From the repo root:
 python3 scripts/run_experiment.py --n 8 --seed 0 --layers 1 --out results/demo.csv
 ```
 
-By default, the runner looks under `one_equality/complete_random`.
+By default, the runner looks under `one_equality_new/complete_random`.
 
 Multi-seed run (flexible: discovers whatever penalty files exist per seed):
 
