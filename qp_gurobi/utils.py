@@ -1227,15 +1227,22 @@ def plot_layer_comparison(
             grouped["penalty"] = np.nan
             best = grouped
         else:
-            penalty_grouped = (
-                layer_rows.groupby(["n", "penalty"])[value_col]
+            # per-seed oracle: for each (N, seed) pick the ρ with the lowest hit time
+            valid = layer_rows[layer_rows[value_col].notna()].copy()
+            if valid.empty:
+                continue
+            seed_best = (
+                valid.sort_values([value_col, "penalty"])
+                .groupby(["n", "seed"], as_index=False)
+                .first()
+            )
+            best = (
+                seed_best.groupby("n")[value_col]
                 .agg(["mean", "std", "count"])
                 .reset_index()
-                .sort_values(["n", "mean", "penalty"])
+                .sort_values("n")
             )
-            if penalty_grouped.empty:
-                continue
-            best = penalty_grouped.groupby("n", as_index=False).first().sort_values("n")
+            best["penalty"] = np.nan
 
         if best.empty:
             continue
@@ -1919,7 +1926,6 @@ def plot_mipsol_ratio_minus_one(
     ax.set_xlabel("Incumbent discovery time (s)", fontsize=14)
     ax.set_ylabel("Approx Ratio - 1", fontsize=14)
     title_setting = f"N={cfg.n}, p={_format_quantum_depth_label(cfg.layers)}" if cfg.family == "quantum" else f"N={cfg.n}, s={cfg.sweeps}"
-    ax.set_title(f"{presolve_text}, {title_extra}, {title_setting}", fontsize=15)
     for side in ["left", "bottom", "top", "right"]:
         ax.spines[side].set_visible(True)
         ax.spines[side].set_alpha(0.85)
@@ -1970,10 +1976,9 @@ def plot_hit_time_vs_penalty(
     if pfilter is not None:
         variant_sub = variant_sub[variant_sub["penalty_round"].round(3).isin(pfilter)].copy()
 
-    _fig_w = max(6.2 * len(eps), 11.0)
-    _panel_w = _fig_w / len(eps)
-    _fs = max(1.0, _panel_w / 7.1)  # scale all text relative to 7.1" reference
-    fig, axes = plt.subplots(1, len(eps), figsize=(_fig_w, 5.8), sharey=True)
+    _fig_w = max(6.2 * len(eps), 9.5)
+    _fs = 1.0  # fixed: match font sizes of scaling / performance-distribution plots
+    fig, axes = plt.subplots(1, len(eps), figsize=(_fig_w, 5.5), sharey=True)
     if len(eps) == 1:
         axes = [axes]
 
@@ -1991,11 +1996,13 @@ def plot_hit_time_vs_penalty(
     baseline_handle = plt.Line2D([0], [0], color="#353B55", linewidth=2.0)
     outer_patch = plt.Rectangle((0, 0), 1, 1, facecolor=outer_bar_color, edgecolor="none", alpha=0.95)
     inner_patch = plt.Rectangle((0, 0), 1, 1, facecolor=inner_bar_color, edgecolor="none", alpha=0.98)
-    legend_handles = [baseline_handle, outer_patch, inner_patch]
+    miss_patch = plt.Rectangle((0, 0), 1, 1, facecolor=miss_color, edgecolor="none", alpha=0.85)
+    legend_handles = [baseline_handle, outer_patch, inner_patch, miss_patch]
     legend_labels = [
         "Baseline time to reach threshold",
         f"Penalized average runtime ({int(penalty_factor)}x timeout penalty)",
-        "Reached-threshold mean",
+        "Instances that reached threshold",
+        "Instances that did not reach threshold",
     ]
 
     for ax, eps_value in zip(axes, eps):
@@ -2074,24 +2081,21 @@ def plot_hit_time_vs_penalty(
                     y_max = max(y_max, float(row.mean_hit_time + row.sem_hit_time))
                 if not np.isnan(row.penalized_mean):
                     y_max = max(y_max, float(row.penalized_mean + row.sem_penalized))
-                if row.miss_count > 0:
-                    anchor = float(row.penalized_mean) if not np.isnan(row.penalized_mean) else 0.0
-                    err = float(row.sem_penalized) if not np.isnan(row.sem_penalized) else 0.0
-                    pad = max(0.007, 0.06 * max(y_max, anchor + err, 0.03))
-                    y_text = anchor + err + pad
-                    text_tops.append(y_text)
-                    ax.text(
-                        idx,
-                        y_text,
-                        f"{int(row.miss_count)} never",
-                        ha="center",
-                        va="bottom",
-                        color=miss_color,
-                        fontsize=12,
-                    )
 
             ax.set_xticks(x)
-            ax.set_xticklabels([f"pen={pen:.2f}" for pen in grouped["penalty_round"]], rotation=45, ha="right", fontsize=12)
+            ax.set_xticklabels([f"ρ={pen:.2f}" for pen in grouped["penalty_round"]], rotation=0, ha="center")
+
+            # red "(N never)" annotation below each tick in axes-fraction y coords
+            from matplotlib.transforms import blended_transform_factory
+            trans = blended_transform_factory(ax.transData, ax.transAxes)
+            for idx, row in enumerate(grouped.itertuples()):
+                if row.miss_count > 0:
+                    ax.text(
+                        idx, -0.055, f"({int(row.miss_count)} never)",
+                        transform=trans, ha="center", va="top",
+                        color=miss_color, fontsize=round(12 * _fs),
+                        clip_on=False,
+                    )
         else:
             grouped = pd.DataFrame()
 
@@ -2118,7 +2122,6 @@ def plot_hit_time_vs_penalty(
             ax.spines[side].set_alpha(0.85)
             ax.spines[side].set_linewidth(round(1.1 * _fs, 1))
         ax.tick_params(axis="both", which="major", direction="in", top=True, right=True, length=round(7 * _fs), width=round(1.1 * _fs, 1), labelsize=round(12 * _fs))
-        ax.tick_params(axis="x", which="major", labelsize=12)  # rotated labels: fixed size
         ax.tick_params(axis="both", which="minor", direction="in", top=True, right=True, length=round(3.5 * _fs), width=round(0.9 * _fs, 1))
         ax.grid(axis="x", visible=False)
         ax.grid(axis="y", which="major", linestyle="--", linewidth=0.8, alpha=0.45)
@@ -2133,25 +2136,332 @@ def plot_hit_time_vs_penalty(
             y_top = max([y_max] + text_tops) if text_tops else y_max
             ax.set_ylim(bottom=0.0, top=y_top + max(0.01, 0.05 * y_top))
 
-    fig.suptitle(
-        f"{presolve_text}, n_seeds={n_seeds}, {_cfg_setting_suffix(cfg)}",
-        fontsize=round(15 * _fs),
-    )
     fig.tight_layout(w_pad=1.1)
     if legend_handles:
+        legend_labels_titled = legend_labels  # presolve goes in legend title
         fig.legend(
             legend_handles,
-            legend_labels,
+            legend_labels_titled,
             loc="lower center",
-            bbox_to_anchor=(0.5, 0.0),
-            ncol=2,
+            bbox_to_anchor=(0.5, -0.02),
+            ncol=3,
             frameon=True,
             framealpha=0.90,
             edgecolor="#CCCCCC",
             fontsize=round(10 * _fs),
             handlelength=2.4,
             handletextpad=0.6,
-            columnspacing=1.6,
+            title=presolve_text.capitalize(),
+            title_fontsize=round(10 * _fs),
         )
-        fig.subplots_adjust(bottom=min(0.14 * _fs, 0.26))
+        fig.subplots_adjust(bottom=min(0.20 * _fs, 0.24))
+    return fig
+
+
+def plot_performance_distribution(
+    summary_dfs: Dict[str, pd.DataFrame],
+    presolve: bool = True,
+    reference_lines: Optional[List[float]] = None,
+) -> plt.Figure:
+    """Fig-1b analog: performance distribution across seeds per N, density-coloured.
+
+    Performance (%) = (baseline_obj / precond_obj) × 100.
+    Top strip shows instances at exactly 100% with fraction labels; main panel
+    shows suboptimal instances on a log-scale complement axis (gap = 100 − perf%).
+    """
+    from matplotlib.colors import LinearSegmentedColormap, Normalize
+    from matplotlib.cm import ScalarMappable
+    from matplotlib.transforms import blended_transform_factory
+    import matplotlib.patches as mpatches
+    import matplotlib.ticker as mticker
+
+    if reference_lines is None:
+        reference_lines = [99.0, 99.9]
+
+    # ── per-label density colourmaps (light → saturated) ──────────────────
+    _families: Dict[str, tuple] = {
+        "p=1":   ("#B3ECEC", "#0D7A7A"),
+        "p=2":   ("#FAD0D0", "#B02040"),
+        "p=3":   ("#FFF0B0", "#997000"),
+        "p=∞":   ("#D5C5F5", "#3E1580"),
+        "p=inf": ("#D5C5F5", "#3E1580"),
+    }
+    _fb_families = [
+        ("#C0E8D0", "#1A6040"), ("#C0C8F0", "#203090"),
+        ("#F0D8C0", "#804020"), ("#F0D0F0", "#702870"),
+    ]
+
+    # ── gather per-seed performance for each (label, N) ───────────────────
+    strip_data: Dict[tuple, dict] = {}
+    for i, (label, df_raw) in enumerate(summary_dfs.items()):
+        df = df_raw[df_raw["presolve"] == presolve].copy()
+        if df.empty:
+            continue
+        bl = (
+            df[df["name"] == "baseline"][["n", "seed", "objective_baseline"]]
+            .drop_duplicates(subset=["n", "seed"])
+            .rename(columns={"objective_baseline": "bl_opt"})
+        )
+        pre = df[df["name"] != "baseline"].copy()
+        if pre.empty:
+            continue
+        pre = pre.merge(bl, on=["n", "seed"], how="left")
+        pre = pre[pre["bl_opt"].notna()].copy()
+        pre["alpha"] = pre["objective_baseline"] / pre["bl_opt"]
+        pre["perf"] = 100.0 / pre["alpha"]   # 100% = exact match
+
+        ends = _families.get(label, _fb_families[i % len(_fb_families)])
+        cmap_i = LinearSegmentedColormap.from_list(f"d_{i}", [ends[0], ends[1]])
+
+        for n_val, grp in pre.groupby("n"):
+            if "penalty" in grp.columns and grp["penalty"].notna().any():
+                sub = grp.loc[grp.groupby("seed")["alpha"].idxmin()]
+            else:
+                sub = grp
+            perfs = sub["perf"].to_numpy()
+
+            # histogram-based local density in perf space, normalised to [0, 1]
+            if len(perfs) > 1 and perfs.max() > perfs.min():
+                n_bins = max(4, min(len(perfs) // 4, 14))
+                counts, edges = np.histogram(perfs, bins=n_bins)
+                idx = np.clip(np.digitize(perfs, edges[:-1]) - 1, 0, len(counts) - 1)
+                density = counts[idx].astype(float) / counts.max()
+            else:
+                density = np.ones(len(perfs))
+
+            strip_data[(label, int(n_val))] = {
+                "perfs": perfs, "density": density,
+                "cmap": cmap_i, "ends": ends,
+            }
+
+    if not strip_data:
+        raise ValueError("No data found — check presolve setting and DataFrame contents.")
+
+    labels_ordered = list(summary_dfs.keys())
+    Ns_sorted = sorted({n for (_, n) in strip_data})
+    n_labels = len(labels_ordered)
+
+    AT_100_THRESH = 99.999  # perf >= this → "solved optimally"
+
+    # ── y-range for main panel (compute before drawing) ───────────────────
+    all_sub_gaps = [
+        np.clip(100.0 - strip_data[k]["perfs"][strip_data[k]["perfs"] < AT_100_THRESH], 1e-4, None)
+        for k in strip_data if np.any(strip_data[k]["perfs"] < AT_100_THRESH)
+    ]
+    if all_sub_gaps:
+        flat = np.concatenate(all_sub_gaps)
+        gap_y_hi = flat.max() * 3.0
+        gap_y_lo = max(flat.min() * 0.3, 1e-4)
+    else:
+        gap_y_hi, gap_y_lo = 10.0, 0.001
+
+    # ── figure layout ─────────────────────────────────────────────────────
+    fig = plt.figure(figsize=(7.1, 5.5))
+    gs = fig.add_gridspec(2, 1, height_ratios=[1, 5], hspace=0.06)
+    ax_top = fig.add_subplot(gs[0])
+    ax_main = fig.add_subplot(gs[1])
+    rng = np.random.default_rng(42)
+
+    cluster_w = 0.82
+    strip_w = cluster_w / max(n_labels, 1)
+    xlim = (-0.72, len(Ns_sorted) - 0.28)
+
+    # stagger each label to its own y-row in the top strip
+    _top_ys = np.linspace(0.72, 1.28, max(n_labels, 1))
+    _label_top_y = dict(zip(labels_ordered, _top_ys))
+
+    # ── scatter strips ────────────────────────────────────────────────────
+    for ci, n_val in enumerate(Ns_sorted):
+        for li, label in enumerate(labels_ordered):
+            key = (label, n_val)
+            if key not in strip_data:
+                continue
+            d = strip_data[key]
+            perfs, density, cmap_i = d["perfs"], d["density"], d["cmap"]
+            strip_cx = ci + (li - (n_labels - 1) / 2.0) * strip_w
+
+            mask_100 = perfs >= AT_100_THRESH
+            top_perfs = perfs[mask_100]
+            sub_perfs = perfs[~mask_100]
+
+            # top strip: each label at its own y-row, jitter across full cluster width
+            if len(top_perfs):
+                jitter = rng.uniform(-cluster_w * 0.40, cluster_w * 0.40, size=len(top_perfs))
+                ax_top.scatter(
+                    ci + jitter, np.full(len(top_perfs), _label_top_y[label]),
+                    c=[cmap_i(0.75)] * len(top_perfs),
+                    s=20, alpha=0.85, linewidths=0, edgecolors="none", zorder=3,
+                )
+
+            # main panel: suboptimal instances on log gap scale
+            if len(sub_perfs):
+                gap = np.clip(100.0 - sub_perfs, 1e-4, None)
+                log_gap = np.log10(gap)
+                if len(log_gap) > 1 and log_gap.max() > log_gap.min():
+                    n_bins = max(4, min(len(log_gap) // 4, 14))
+                    cts, eds = np.histogram(log_gap, bins=n_bins)
+                    idx = np.clip(np.digitize(log_gap, eds[:-1]) - 1, 0, len(cts) - 1)
+                    sub_dens = cts[idx].astype(float) / cts.max()
+                else:
+                    sub_dens = np.ones(len(sub_perfs))
+
+                jitter = rng.uniform(-strip_w * 0.30, strip_w * 0.30, size=len(sub_perfs))
+                ax_main.scatter(
+                    strip_cx + jitter, gap,
+                    c=cmap_i(sub_dens),
+                    s=32, alpha=0.90, linewidths=0.4, edgecolors="white", zorder=3,
+                )
+
+            # mean bar: mean gap over ALL instances (incl. 100% ones)
+            mean_gap = float(np.mean(100.0 - perfs))
+            if mean_gap > 0:
+                ax_main.plot(
+                    [strip_cx - strip_w * 0.44, strip_cx + strip_w * 0.44],
+                    [mean_gap, mean_gap],
+                    color="#1a1a2e", linewidth=3.0, solid_capstyle="butt", zorder=5,
+                )
+
+    # ── fraction-solved-optimally: ONE aggregate label per N column ───────
+    trans_top = blended_transform_factory(ax_top.transData, ax_top.transAxes)
+    for ci, n_val in enumerate(Ns_sorted):
+        total = sum(
+            len(strip_data[(l, n_val)]["perfs"])
+            for l in labels_ordered if (l, n_val) in strip_data
+        )
+        n_100 = sum(
+            int(np.sum(strip_data[(l, n_val)]["perfs"] >= AT_100_THRESH))
+            for l in labels_ordered if (l, n_val) in strip_data
+        )
+        if total > 0:
+            frac = 100.0 * n_100 / total
+            ax_top.text(
+                ci, 1.08, f"{frac:.0f}%",
+                transform=trans_top, ha="center", va="bottom",
+                fontsize=9, color="#555555", clip_on=False,
+            )
+
+    ax_top.text(
+        0.5, 1.55, "Fraction solved optimally",
+        ha="center", va="bottom", fontsize=9, color="#888888",
+        transform=ax_top.transAxes, clip_on=False,
+    )
+
+    # ── style top strip ───────────────────────────────────────────────────
+    ax_top.set_xlim(*xlim)
+    ax_top.set_ylim(0.45, 1.55)
+    ax_top.set_yticks([1.0])
+    ax_top.set_yticklabels(["100%"], fontsize=12)
+    ax_top.set_xticks([])
+    ax_top.axhline(1.0, color="#353B55", linestyle="--", linewidth=1.3, alpha=0.60, zorder=2)
+    ax_top.spines["bottom"].set_visible(False)
+    for side in ["top", "left", "right"]:
+        ax_top.spines[side].set_linewidth(1.1)
+    ax_top.tick_params(axis="y", direction="in", left=True, right=True,
+                       length=7, width=1.1, labelsize=12)
+    ax_top.tick_params(axis="x", bottom=False, top=False)
+
+    # ── style main panel ──────────────────────────────────────────────────
+    ax_main.set_yscale("log")
+    ax_main.set_ylim(gap_y_hi, gap_y_lo)  # large gap (bad) at bottom, small (good) at top
+
+    # y-ticks: pick at most 4 clean candidates within data range
+    cand_gaps   = [10,    1,    0.1,    0.01,    0.001]
+    cand_labels = ["90%", "99%", "99.9%", "99.99%", "99.999%"]
+    valid = [(g, l) for g, l in zip(cand_gaps, cand_labels) if gap_y_lo <= g <= gap_y_hi]
+    valid = valid[:4]  # cap at 4 ticks
+    if valid:
+        vg, vl = zip(*valid)
+        ax_main.set_yticks(list(vg))
+        ax_main.set_yticklabels(list(vl), fontsize=12)
+    ax_main.yaxis.set_minor_locator(mticker.LogLocator(subs="all", numticks=10))
+
+    # reference lines (converted from perf% to gap)
+    for ref in reference_lines:
+        ref_gap = 100.0 - ref
+        if gap_y_lo <= ref_gap <= gap_y_hi:
+            ax_main.axhline(ref_gap, color="#888888", linestyle=":",
+                            linewidth=1.1, alpha=0.75, zorder=1)
+
+    ax_main.set_xticks(range(len(Ns_sorted)))
+    ax_main.set_xticklabels([str(n) for n in Ns_sorted], fontsize=12)
+    ax_main.set_xlim(*xlim)
+    ax_main.set_xlabel("Number of variables N", fontsize=14)
+    ax_main.set_ylabel("")
+    ax_main.grid(axis="y", which="major", linestyle="--", linewidth=0.6, alpha=0.35)
+    ax_main.grid(axis="x", visible=False)
+    for side in ["top", "right"]:
+        ax_main.spines[side].set_visible(False)
+    for side in ["left", "bottom"]:
+        ax_main.spines[side].set_alpha(0.85)
+        ax_main.spines[side].set_linewidth(1.1)
+    ax_main.tick_params(axis="both", which="major", direction="in",
+                        top=False, right=True, length=7, width=1.1, labelsize=12)
+    ax_main.tick_params(axis="both", which="minor", direction="in",
+                        top=False, right=True, length=3.5, width=0.9)
+
+    # ── broken-axis diagonal marks (left edge only, cleaner) ──────────────
+    d_b = 0.008
+    for ax_, y_pos in [(ax_top, 0.0), (ax_main, 1.0)]:
+        ax_.plot(
+            [-d_b, +d_b], [y_pos - 2 * d_b, y_pos + 2 * d_b],
+            transform=ax_.transAxes, color="k", clip_on=False, linewidth=1.1,
+        )
+
+    # ── combined gradient legend below x-axis ────────────────────────────
+    from matplotlib.legend_handler import HandlerBase
+
+    class _GradHandler(HandlerBase):
+        """Legend handler that draws a horizontal gradient rectangle."""
+        def __init__(self, cmap, n_seg=32):
+            self._cmap = cmap
+            self._n = n_seg
+            super().__init__()
+
+        def create_artists(self, legend, orig_handle, xdescent, ydescent,
+                           width, height, fontsize, trans):
+            patches = []
+            seg_w = width / self._n
+            for j in range(self._n):
+                patches.append(plt.Rectangle(
+                    (xdescent + j * seg_w, ydescent), seg_w + 0.5, height,
+                    facecolor=self._cmap(j / max(self._n - 1, 1)),
+                    edgecolor="none", transform=trans,
+                ))
+            patches.append(plt.Rectangle(
+                (xdescent, ydescent), width, height,
+                facecolor="none", edgecolor="#aaaaaa",
+                linewidth=0.5, transform=trans,
+            ))
+            return patches
+
+    leg_handles = []
+    handler_map = {}
+    for i, label in enumerate(labels_ordered):
+        ends = _families.get(label, _fb_families[i % len(_fb_families)])
+        cmap_h = LinearSegmentedColormap.from_list(f"_lh{i}", [ends[0], ends[1]])
+        h = mpatches.Patch(label=label)
+        leg_handles.append(h)
+        handler_map[h] = _GradHandler(cmap_h)
+
+    mean_h = plt.Line2D([0], [0], color="#1a1a2e", linewidth=3.0, label="Mean")
+    leg_handles.append(mean_h)
+
+    presolve_label = "Presolve on" if presolve else "Presolve off"
+    ax_main.legend(
+        handles=leg_handles,
+        handler_map=handler_map,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.20),
+        ncol=len(leg_handles),
+        fontsize=11,
+        title=f"{presolve_label}   ·   Color: instance density (Low → High)",
+        title_fontsize=11,
+        frameon=True, framealpha=0.92, edgecolor="#CCCCCC",
+        handlelength=3.5, handletextpad=0.5, columnspacing=1.2,
+    )
+
+    fig.subplots_adjust(left=0.17, right=0.97, bottom=0.30, top=0.86, hspace=0.08)
+    # y-label centred across both panels, clear of the widest tick label
+    fig.text(0.03, (0.30 + 0.86) / 2, "Performance distribution (%)",
+             va="center", ha="center", rotation="vertical", fontsize=14)
     return fig

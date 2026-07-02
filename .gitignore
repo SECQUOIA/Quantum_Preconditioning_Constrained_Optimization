@@ -18,10 +18,7 @@ venv/
 .DS_Store
 .vscode/
 
-# Keep results CSVs, but ignore verbose solver logs by default
+# Keep results CSVs, but ignore verbose solver logs (regenerable from --log-dir)
 logs/
 results/logs_*/
 results/**/*.log
-
-# Solver logs (accidentally committed in earlier PR; regenerable from --log-dir)
-logs/
