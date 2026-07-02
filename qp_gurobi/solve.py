@@ -135,22 +135,28 @@ def solve_bisection_ip(
     model.addConstr(gp.quicksum(x[i] for i in range(n)) == n / 2, name="bisection")
 
     best_t: List[float] = []
+    best_orig: List[float] = []   # running minimum of orig_obj across incumbents
     trajectory: List[Tuple[float, float]] = []
 
     def _cb(model, where):
         """Record incumbent callback events during Gurobi optimization."""
         if where == GRB.Callback.MIPSOL:
             t = float(model.cbGet(GRB.Callback.RUNTIME))
-            # Evaluate each preconditioned problem's feasible solution against the original objective.
             x_sol = [model.cbGetSolution(x[i]) for i in range(n)]
             z_sol = z_from_x([int(round(v)) for v in x_sol])
             orig_obj = eval_ising(baseline_instance, z_sol)
             trajectory.append((t, orig_obj))
-            # Track time of last preconditioned-objective incumbent (time-to-best).
-            if best_t:
-                best_t[0] = t
-            else:
-                best_t.append(t)
+            # Only advance time-to-best when the original objective strictly improves.
+            # Without this guard, a later worse incumbent overwrites the best timestamp.
+            if not best_orig or orig_obj < best_orig[0]:
+                if best_t:
+                    best_t[0] = t
+                else:
+                    best_t.append(t)
+                if best_orig:
+                    best_orig[0] = orig_obj
+                else:
+                    best_orig.append(orig_obj)
 
     model.optimize(_cb)
 

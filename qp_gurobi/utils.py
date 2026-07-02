@@ -858,9 +858,9 @@ def load_trajectory_data(
 
 def prepare_penalty_metrics(df: pd.DataFrame) -> pd.DataFrame:
     """Compute objective-quality metrics for preconditioned penalty runs."""
-    baseline = df[df["name"] == "baseline"][
-        ["seed", "presolve", "objective_baseline", "runtime_sec", "time_to_best_sec"]
-    ].copy()
+    merge_keys = ["seed", "presolve", "n"] if "n" in df.columns else ["seed", "presolve"]
+    baseline_cols = merge_keys + ["objective_baseline", "runtime_sec", "time_to_best_sec"]
+    baseline = df[df["name"] == "baseline"][baseline_cols].copy()
     baseline = baseline.rename(
         columns={
             "objective_baseline": "baseline_obj",
@@ -871,7 +871,7 @@ def prepare_penalty_metrics(df: pd.DataFrame) -> pd.DataFrame:
 
     pre = df[df["penalty"].notna()].copy()
     pre["penalty_round"] = pre["penalty"].astype(float).round(3)
-    pre = pre.merge(baseline, on=["seed", "presolve"], how="left")
+    pre = pre.merge(baseline, on=merge_keys, how="left")
     pre = pre[pre["baseline_obj"].notna()].copy()
     pre = pre[pre["baseline_obj"] != 0].copy()
     pre["approx_ratio_minus_1"] = pre["objective_baseline"] / pre["baseline_obj"] - 1.0
@@ -1014,6 +1014,32 @@ def prepare_hit_time_metrics(
     return hit_df
 
 
+def _aggregate_hit_time_stats(eps_variants: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate hit-time and penalized hit-time statistics per penalty value.
+
+    Both SEMs are divided by sqrt(total_count) — the full seed population — so
+    that error bars for hit_time and penalized_hit_time are computed on the same
+    denominator and remain comparable when some seeds miss the threshold.
+    """
+    grouped = (
+        eps_variants.groupby("penalty_round")
+        .agg(
+            mean_hit_time=("hit_time_sec", "mean"),
+            std_hit_time=("hit_time_sec", "std"),
+            hit_count=("hit_time_sec", "count"),
+            penalized_mean=("penalized_hit_time_sec", "mean"),
+            penalized_std=("penalized_hit_time_sec", "std"),
+            total_count=("seed", "size"),
+        )
+        .reset_index()
+        .sort_values("penalty_round")
+    )
+    grouped["sem_hit_time"] = grouped["std_hit_time"].fillna(0.0) / np.sqrt(grouped["total_count"])
+    grouped["sem_penalized"] = grouped["penalized_std"].fillna(0.0) / np.sqrt(grouped["total_count"])
+    grouped["miss_count"] = grouped["total_count"] - grouped["hit_count"]
+    return grouped
+
+
 def compute_hit_time_plot_limits(
     hit_df: pd.DataFrame,
     presolve: bool,
@@ -1041,21 +1067,7 @@ def compute_hit_time_plot_limits(
     for eps_value in eps:
         eps_variants = variant_sub[variant_sub["threshold"] == eps_value].copy()
         if not eps_variants.empty:
-            grouped = (
-                eps_variants.groupby("penalty_round")
-                .agg(
-                    mean_hit_time=("hit_time_sec", "mean"),
-                    std_hit_time=("hit_time_sec", "std"),
-                    hit_count=("hit_time_sec", "count"),
-                    penalized_mean=("penalized_hit_time_sec", "mean"),
-                    penalized_std=("penalized_hit_time_sec", "std"),
-                    total_count=("seed", "size"),
-                )
-                .reset_index()
-                .sort_values("penalty_round")
-            )
-            grouped["sem_hit_time"] = grouped["std_hit_time"].fillna(0.0) / np.sqrt(grouped["hit_count"])
-            grouped["sem_penalized"] = grouped["penalized_std"].fillna(0.0) / np.sqrt(grouped["total_count"])
+            grouped = _aggregate_hit_time_stats(eps_variants)
             for row in grouped.itertuples():
                 if row.hit_count > 0 and not np.isnan(row.mean_hit_time):
                     mean = float(row.mean_hit_time)
@@ -2010,22 +2022,7 @@ def plot_hit_time_vs_penalty(
         y_max = 0.0
         text_tops: list[float] = []
         if not eps_variants.empty:
-            grouped = (
-                eps_variants.groupby("penalty_round")
-                .agg(
-                    mean_hit_time=("hit_time_sec", "mean"),
-                    std_hit_time=("hit_time_sec", "std"),
-                    hit_count=("hit_time_sec", "count"),
-                    penalized_mean=("penalized_hit_time_sec", "mean"),
-                    penalized_std=("penalized_hit_time_sec", "std"),
-                    total_count=("seed", "size"),
-                )
-                .reset_index()
-                .sort_values("penalty_round")
-            )
-            grouped["sem_hit_time"] = grouped["std_hit_time"].fillna(0.0) / np.sqrt(grouped["hit_count"])
-            grouped["sem_penalized"] = grouped["penalized_std"].fillna(0.0) / np.sqrt(grouped["total_count"])
-            grouped["miss_count"] = grouped["total_count"] - grouped["hit_count"]
+            grouped = _aggregate_hit_time_stats(eps_variants)
 
             x = np.arange(len(grouped))
             heights = grouped["mean_hit_time"].to_numpy()
