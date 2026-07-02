@@ -119,9 +119,10 @@ def main() -> int:
         type=Path,
         default=None,
         help=(
-            "If set, write a long-format trajectory CSV with one row per MIPSol callback event. "
+            "Path for the long-format trajectory CSV (one row per MIPSol callback event). "
             "Columns: seed, layers, sweeps, preconditioner_family, name, penalty, presolve, event_idx, "
-            "time_sec, orig_obj, running_best_orig_obj."
+            "time_sec, orig_obj, running_best_orig_obj. "
+            "Defaults to results/N=<n>_<family>_presolve_<mode>_trajectories.csv alongside the main output."
         ),
     )
 
@@ -199,7 +200,6 @@ def main() -> int:
             row["preconditioner_family"] = args.preconditioner
             row["layers"] = int(args.layers) if args.layers is not None else None
             row["sweeps"] = int(args.sweeps) if args.sweeps is not None else None
-            row["data_root"] = str(data_root)
             row["presolve"] = not args.no_presolve
             all_rows.append(row)
 

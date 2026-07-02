@@ -2,10 +2,10 @@
 
 This repo contains a tiny workflow to compare:
 
-- **Baseline** graph bi-partioning objective from `one_equality_new/../N=.../seed=.../problem.dat`
-- **Preconditioned** objectives from `one_equality_new/../N=.../seed=.../n_qaoa_layers=.../preconditioned_problem_pen=...dat`
+- **Baseline** graph bipartitioning objective from `one_equality_new/complete_random/N=.../seed=.../problem.dat`
+- **Preconditioned** objectives from `one_equality_new/complete_random/N=.../seed=.../n_qaoa_layers=.../preconditioned_problem_pen=....dat`
 
-Both are solved with the **same hard bi-partioning constraint** (equal-size partition):
+Both are solved with the **same hard bipartitioning constraint** (equal-size partition):
 
 - variables are represented internally as `x_i ∈ {0,1}`
 - with `z_i = 2x_i - 1 ∈ {−1,+1}`

@@ -92,8 +92,10 @@ def solve_bisection_ip(
     try:
         import gurobipy as gp
         from gurobipy import GRB
-    except Exception as e:
-        raise RuntimeError("gurobipy not available") from e
+    except Exception as e:  # pragma: no cover
+        raise RuntimeError(
+            "gurobipy is required to solve. Install it and ensure a Gurobi license is available."
+        ) from e
 
     if instance.n % 2 != 0:
         raise ValueError(f"n must be even for balanced bisection; got n={instance.n}")
