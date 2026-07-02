@@ -108,9 +108,9 @@ def trajectory_df_two_seeds() -> pd.DataFrame:
     seed=1: never hits threshold (stays at -9.0 which is above -9.9 for eps=0.01)
     """
     rows = []
-    # seed 0 — crosses from -9.0 → -10.0 at t=0.2 (baseline_opt=-10.0, eps=0.01 → target=-10.1)
-    # Actually for eps=0.01 threshold = base_opt*(1-eps) = -10.0*(1-0.01) = -10.1
-    # seed 0 reaches -10.2 at t=0.2, so it hits
+    # threshold formula: base_opt + abs(base_opt)*eps = -10.0 + 1.0*0.01 = -9.9
+    # seed 0 reaches -10.2 at t=0.2 (-10.2 ≤ -9.9) → hits
+    # seed 1 best is -9.5 (-9.5 > -9.9) → misses
     for seed, events in [
         (0, [(0.1, -9.0), (0.2, -10.2)]),
         (1, [(0.1, -9.0), (0.5, -9.5)]),

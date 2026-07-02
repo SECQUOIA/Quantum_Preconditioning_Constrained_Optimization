@@ -33,10 +33,8 @@ def _make_hit_df_fixture(
     base_opt: float,
     eps: float,
     hit_times: list[float],
-) -> tuple[pd.DataFrame, pd.DataFrame, PlotConfig]:
+) -> tuple[pd.DataFrame, dict[bool, pd.DataFrame], PlotConfig]:
     """Build minimal summary_df and traj_by_presolve for prepare_hit_time_metrics."""
-    import json
-
     assert len(hit_times) == n_hitting
 
     summary_rows = []
@@ -165,9 +163,8 @@ class TestPreparePenaltyMetrics:
 class TestPrepareHitTimeMetrics:
     def test__prepare_hit_time_metrics__given_trajectory_never_crosses__hit_time_is_nan(self):
         """Seeds whose trajectory never reaches the threshold produce NaN hit_time_sec."""
-        # ARRANGE — only one seed, its best value (-9.5) doesn't reach target (-9.9)
-        # base_opt=10.0, eps=0.01 → target = 10.0 + 0.1 = 10.1
-        # The seed's best running value is 12.0, which is > 10.1, so no hit.
+        # ARRANGE — base_opt=10.0, eps=0.01 → threshold = 10.0 + 0.1 = 10.1
+        # Initial (only) event is base_opt*1.5 = 15.0 > 10.1, so no hit.
         summary_df, traj_by_presolve, cfg = _make_hit_df_fixture(
             n_seeds=1, n_hitting=0, base_opt=10.0, eps=0.01, hit_times=[]
         )

@@ -3,7 +3,7 @@
 This repo contains a tiny workflow to compare:
 
 - **Baseline** graph bipartitioning objective from `one_equality_new/complete_random/N=.../seed=.../problem.dat`
-- **Preconditioned** objectives from `one_equality_new/complete_random/N=.../seed=.../n_qaoa_layers=.../preconditioned_problem_pen=....dat`
+- **Preconditioned** objectives from `one_equality_new/complete_random/N=.../seed=.../n_qaoa_layers=.../preconditioned_problem_pen=<value>.dat`
 
 Both are solved with the **same hard bipartitioning constraint** (equal-size partition):
 

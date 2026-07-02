@@ -23,7 +23,8 @@ class SolveResult:
     runtime_sec : float
         Total solver runtime in seconds.
     time_to_best_sec : float
-        Callback time of the final incumbent for the solved model.
+        Callback time of the incumbent that achieved the best original-objective
+        value. Updated only when the original objective strictly improves.
     trajectory : list of tuple
         Incumbent callback events as ``(time_sec, original_objective)``.
     """
