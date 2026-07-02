@@ -214,7 +214,12 @@ def main() -> int:
         else:
             seed_tag = str(args.seed) if args.seed is not None else "0"
         mode = "off" if args.no_presolve else "on"
-        out = Path("results") / f"N={args.n}_{family_tag}_presolve_{mode}.csv"
+        if args.all_seeds:
+            # All seeds aggregated into one file; seed_tag not needed in name.
+            out = Path("results") / f"N={args.n}_{family_tag}_presolve_{mode}.csv"
+        else:
+            # Include seed_tag so partial-seed runs never silently overwrite each other.
+            out = Path("results") / f"N={args.n}_{family_tag}_seeds={seed_tag}_presolve_{mode}.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
 
     if not all_rows:

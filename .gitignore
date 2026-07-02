@@ -22,3 +22,6 @@ venv/
 logs/
 results/logs_*/
 results/**/*.log
+
+# Solver logs (accidentally committed in earlier PR; regenerable from --log-dir)
+logs/

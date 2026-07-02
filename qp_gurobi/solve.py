@@ -95,13 +95,21 @@ def solve_bisection_ip(
     except Exception as e:
         raise RuntimeError("gurobipy not available") from e
 
+    if instance.n % 2 != 0:
+        raise ValueError(f"n must be even for balanced bisection; got n={instance.n}")
+    if instance.n != baseline_instance.n:
+        raise ValueError(
+            f"instance.n={instance.n} != baseline_instance.n={baseline_instance.n}"
+        )
+
     n = instance.n
     const, lin, quad = _ising_to_qubo(instance)
 
     model = gp.Model(name)
-    model.Params.OutputFlag = int(output_flag)
-    if output_flag:
-        model.Params.LogToConsole = 1
+    # Enable Gurobi output whenever file logging or console output is requested.
+    # OutputFlag=0 suppresses file logging too, so decouple the two controls.
+    model.Params.OutputFlag = 1 if (log_file or output_flag) else 0
+    model.Params.LogToConsole = 1 if output_flag else 0
     if log_file:
         model.Params.LogFile = str(log_file)
     if time_limit_sec is not None:
@@ -145,7 +153,7 @@ def solve_bisection_ip(
     model.optimize(_cb)
 
     status = int(model.Status)
-    feasible = status in (GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.SUBOPTIMAL)
+    feasible = model.SolCount > 0  # safe under TIME_LIMIT with no incumbent
     x_bits = [int(round(x[i].X)) for i in range(n)] if feasible else [0] * n
     z_bits = z_from_x(x_bits)
 
