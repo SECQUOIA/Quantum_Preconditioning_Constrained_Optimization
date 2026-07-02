@@ -159,6 +159,49 @@ class TestPreparePenaltyMetrics:
 
 
 # ---------------------------------------------------------------------------
+# prepare_hit_time_metrics — coverage tests
+# ---------------------------------------------------------------------------
+
+class TestPrepareHitTimeMetrics:
+    def test__prepare_hit_time_metrics__given_trajectory_never_crosses__hit_time_is_nan(self):
+        """Seeds whose trajectory never reaches the threshold produce NaN hit_time_sec."""
+        # ARRANGE — only one seed, its best value (-9.5) doesn't reach target (-9.9)
+        # base_opt=10.0, eps=0.01 → target = 10.0 + 0.1 = 10.1
+        # The seed's best running value is 12.0, which is > 10.1, so no hit.
+        summary_df, traj_by_presolve, cfg = _make_hit_df_fixture(
+            n_seeds=1, n_hitting=0, base_opt=10.0, eps=0.01, hit_times=[]
+        )
+
+        # ACT
+        hit_df = prepare_hit_time_metrics(
+            summary_df, traj_by_presolve, cfg, thresholds=[0.01]
+        )
+
+        # ASSERT
+        variant_rows = hit_df[~hit_df["is_baseline"]]
+        assert not variant_rows["hit_found"].any(), "No seed should have hit the threshold"
+        assert variant_rows["hit_time_sec"].isna().all(), "hit_time_sec must be NaN for all misses"
+
+    def test__prepare_hit_time_metrics__given_early_crossing__hit_time_matches_first_event(self):
+        """The recorded hit_time_sec must be the timestamp of the first threshold crossing."""
+        # ARRANGE — seed hits at t=0.2 (second event; first is too high)
+        summary_df, traj_by_presolve, cfg = _make_hit_df_fixture(
+            n_seeds=1, n_hitting=1, base_opt=10.0, eps=0.01, hit_times=[0.2]
+        )
+
+        # ACT
+        hit_df = prepare_hit_time_metrics(
+            summary_df, traj_by_presolve, cfg, thresholds=[0.01]
+        )
+
+        # ASSERT
+        variant_rows = hit_df[~hit_df["is_baseline"]]
+        assert variant_rows["hit_found"].all()
+        # hit_time must be ≤ the runtime (0.2 is the crossing event time)
+        assert variant_rows["hit_time_sec"].iloc[0] == pytest.approx(0.2, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
 # Bug #2 — epsilon threshold formula (documentation test)
 #
 # NOTE: After careful analysis, the formula `base_opt + abs(base_opt) * eps`

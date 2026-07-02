@@ -104,6 +104,32 @@ class TestIsingToQubo:
 
 
 # ---------------------------------------------------------------------------
+# Happy-path integration test (integration)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+def test__solve_bisection_ip__given_small_feasible_instance__returns_feasible_result():
+    """End-to-end: a tiny 4-node instance should solve to a balanced partition."""
+    pytest.importorskip("gurobipy", reason="Gurobi not available")
+
+    from qp_gurobi.solve import solve_bisection_ip
+
+    # ARRANGE — 4-node instance; optimal cut separates {0,1} from {2,3}
+    inst = IsingInstance(n=4, constant=0.0, linear={}, quadratic={(0, 2): 1.0, (1, 3): 1.0})
+
+    # ACT
+    result = solve_bisection_ip(inst, inst, name="happy-path", output_flag=0)
+
+    # ASSERT — feasible solution found with correct structural properties
+    assert result.n == 4
+    assert not any(v != v for v in [result.objective_model, result.objective_baseline])  # no NaN
+    assert result.sum_z == 0, "bisection constraint: sum of spins must be 0"
+    assert len(result.x_bits) == 4
+    assert sum(result.x_bits) == 2, "exactly half the bits should be 1"
+    assert result.runtime_sec >= 0.0
+
+
+# ---------------------------------------------------------------------------
 # Bug #1 — time_to_best_sec tracks last incumbent, not best (integration)
 # ---------------------------------------------------------------------------
 
