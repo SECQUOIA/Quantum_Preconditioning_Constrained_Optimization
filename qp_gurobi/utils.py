@@ -2459,6 +2459,6 @@ def plot_performance_distribution(
 
     fig.subplots_adjust(left=0.17, right=0.97, bottom=0.30, top=0.86, hspace=0.08)
     # y-label centred across both panels, clear of the widest tick label
-    fig.text(0.03, (0.30 + 0.86) / 2, "Performance distribution (%)",
+    fig.text(0.045, (0.30 + 0.86) / 2, "Performance distribution (%)",
              va="center", ha="center", rotation="vertical", fontsize=14)
     return fig
