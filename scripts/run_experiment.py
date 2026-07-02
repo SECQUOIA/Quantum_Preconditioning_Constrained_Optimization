@@ -99,8 +99,8 @@ def main() -> int:
         default="quantum",
         help="Preconditioning family to run (default: quantum)",
     )
-    ap.add_argument("--layers", type=int, default=None, help="Quantum n_qaoa_layers folder")
-    ap.add_argument("--sweeps", type=int, default=None, help="Classical n_sweeps folder")
+    ap.add_argument("--layers", type=int, default=None, help="Quantum n_qaoa_layers folder (required when --preconditioner=quantum)")
+    ap.add_argument("--sweeps", type=int, default=None, help="Classical n_sweeps folder (required when --preconditioner=classical)")
     ap.add_argument("--time-limit", type=float, default=None, help="Gurobi TimeLimit seconds")
     ap.add_argument("--mip-gap", type=float, default=None, help="Gurobi MIPGap")
     ap.add_argument("--threads", type=int, default=None, help="Gurobi Threads")
