@@ -1441,6 +1441,270 @@ def plot_layer_comparison(
     return fig
 
 
+# ---------------------------------------------------------------------------
+# Penalty-strategy panel comparison
+# ---------------------------------------------------------------------------
+
+_PANEL_STRATEGIES: list[tuple[str, str]] = [
+    ("oracle", "Oracle\n(best ρ per instance — upper bound)"),
+    ("fixed",  "Fixed global ρ\n(single ρ, mean-optimal across all N & seeds)"),
+    ("loo",    "Cross-validated ρ\n(LOO over seeds within each N)"),
+]
+
+
+def _apply_penalty_strategy(
+    layer_rows: pd.DataFrame,
+    value_col: str,
+    strategy: str,
+) -> pd.DataFrame:
+    """Return one row per (n, seed) chosen by the given penalty strategy.
+
+    strategy="oracle": retrospective best ρ per instance (upper bound).
+    strategy="fixed":  single ρ minimising mean metric across all (n, seed).
+    strategy="loo":    for each seed, ρ chosen by mean over other seeds at same N.
+    """
+    valid = layer_rows[layer_rows[value_col].notna()].copy()
+    if valid.empty:
+        return pd.DataFrame()
+
+    valid["_pen_r"] = valid["penalty"].round(3)
+
+    if strategy == "oracle":
+        return (
+            valid.sort_values([value_col, "_pen_r"])
+            .groupby(["n", "seed"], as_index=False)
+            .first()
+        )
+
+    if strategy == "fixed":
+        pen_means = valid.groupby("_pen_r")[value_col].mean()
+        best_pen = round(float(pen_means.idxmin()), 3)
+        fixed = valid[valid["_pen_r"] == best_pen].copy()
+        return fixed.groupby(["n", "seed"], as_index=False).first()
+
+    if strategy == "loo":
+        chosen = []
+        for (n_val, seed_val), grp in valid.groupby(["n", "seed"]):
+            train = valid[(valid["n"] == n_val) & (valid["seed"] != seed_val)]
+            if train.empty:
+                best_pen = round(float(grp.sort_values(value_col)["_pen_r"].iloc[0]), 3)
+            else:
+                best_pen = round(float(train.groupby("_pen_r")[value_col].mean().idxmin()), 3)
+            row = grp[grp["_pen_r"] == best_pen]
+            if not row.empty:
+                chosen.append(row.iloc[0])
+        return pd.DataFrame(chosen) if chosen else pd.DataFrame()
+
+    raise ValueError(f"Unknown penalty strategy {strategy!r}. Choose 'oracle', 'fixed', or 'loo'.")
+
+
+def plot_layer_comparison_panel_strategies(
+    summary_df: pd.DataFrame,
+    layers_list: Iterable[int],
+    presolve: bool,
+    traj_df: Optional[pd.DataFrame] = None,
+    eps_threshold: Optional[float] = None,
+    metric: str = "runtime_sec",
+    y_log: bool = True,
+    strategies: Optional[list[tuple[str, str]]] = None,
+) -> plt.Figure:
+    """Three-panel scaling plot comparing oracle, fixed-global, and LOO penalty selection.
+
+    Produces panels side-by-side with a shared y-axis so the performance gap between
+    strategies is immediately visible without axis rescaling tricks.
+    """
+    if strategies is None:
+        strategies = _PANEL_STRATEGIES
+
+    sub = summary_df[summary_df["presolve"] == bool(presolve)].copy()
+    if sub.empty:
+        raise ValueError(f"No summary data for presolve={presolve}")
+
+    layers_sorted = _sort_quantum_depths(layers_list)
+    baseline_rows = sub[sub["name"] == "baseline"].copy()
+    if baseline_rows.empty:
+        raise ValueError("No baseline rows found.")
+
+    baseline_opt = (
+        baseline_rows[["n", "seed", "presolve", "objective_baseline"]]
+        .drop_duplicates(subset=["n", "seed", "presolve"])
+        .rename(columns={"objective_baseline": "baseline_opt"})
+    )
+    total_seed_counts = baseline_opt.groupby("n")["seed"].nunique().to_dict()
+
+    if traj_df is not None and eps_threshold is not None:
+        value_col = "eps_hit_time"
+        _bl_lookup = {
+            (int(r.n), int(r.seed)): float(r.baseline_opt)
+            for r in baseline_opt.itertuples()
+            if pd.notna(getattr(r, "baseline_opt", None))
+        }
+        _t = traj_df.copy()
+        _t["_bopt"] = [_bl_lookup.get((int(n), int(s))) for n, s in zip(_t["n"], _t["seed"])]
+        _t = _t[_t["_bopt"].notna()].copy()
+        _t["_thr"] = _t["_bopt"] + _t["_bopt"].abs() * eps_threshold
+        _t["_pk"] = _t["penalty"].fillna(-1e9)
+        sub["_pk"] = sub["penalty"].fillna(-1e9)
+        _gcols = ["n", "name", "seed", "_pk"] + (["layers"] if "layers" in _t.columns else [])
+        _eps_rows: list[dict] = []
+        for _keys, _grp in _t.groupby(_gcols):
+            _thr_val = float(_grp["_thr"].iloc[0])
+            _sg = _grp.sort_values("event_idx")
+            _hit = _sg.loc[_sg["running_best_orig_obj"] <= _thr_val + 1e-8, "time_sec"]
+            _kd = dict(zip(_gcols, _keys if isinstance(_keys, tuple) else (_keys,)))
+            _kd["eps_hit_time"] = float(_hit.iloc[0]) if not _hit.empty else float("nan")
+            _eps_rows.append(_kd)
+        _eps_df = pd.DataFrame(_eps_rows)
+        _mcols = [c for c in _gcols if c in sub.columns]
+        sub = sub.merge(_eps_df[_mcols + ["eps_hit_time"]], on=_mcols, how="left")
+        sub = sub.drop(columns=["_pk"])
+        baseline_rows = sub[sub["name"] == "baseline"].copy()
+        y_label = f"Time to ε = {eps_threshold * 100:g}%-optimal (s)"
+    else:
+        value_col = metric
+        y_label = "Runtime (s)" if metric == "runtime_sec" else "Time to best solution (s)"
+
+    raw_pre_rows = sub[sub["name"] != "baseline"].copy()
+    raw_pre_rows = raw_pre_rows.merge(baseline_opt, on=["n", "seed", "presolve"], how="left")
+    pre_rows = raw_pre_rows.copy()
+
+    baseline_seed = (
+        baseline_rows.groupby(["n", "seed"], as_index=False)[value_col]
+        .mean()
+        .sort_values(["n", "seed"])
+    )
+    baseline_grouped = (
+        baseline_seed.groupby("n")[value_col]
+        .agg(["mean", "std", "count"])
+        .reset_index()
+        .sort_values("n")
+    )
+    baseline_grouped["total_count"] = (
+        baseline_grouped["n"].map(total_seed_counts).fillna(baseline_grouped["count"]).astype(int)
+    )
+    baseline_grouped["sem"] = baseline_grouped["std"].fillna(0.0) / np.sqrt(baseline_grouped["count"])
+
+    base_order, base_scale = _fit_exponential_order(baseline_grouped["n"], baseline_grouped["mean"])
+    baseline_style = {"color": "#353B55", "marker": "s"}
+    series_styles = {
+        1.0: {"color": "#42C6C6", "marker": "o"},
+        2.0: {"color": "#F08AA2", "marker": "o"},
+        3.0: {"color": "#F2C94C", "marker": "o"},
+        float("inf"): {"color": "#6C4AB6", "marker": "^"},
+    }
+    fallback_cmap = plt.get_cmap("tab10")
+
+    n_panels = len(strategies)
+    fig, axes = plt.subplots(
+        1, n_panels,
+        figsize=(7.1 * n_panels, 5.5),
+        sharey=True,
+        constrained_layout=True,
+    )
+    if n_panels == 1:
+        axes = [axes]
+
+    for ax, (strategy, title) in zip(axes, strategies):
+        baseline_label = (
+            f"Original Gurobi - O({base_order:.2f}^N)" if np.isfinite(base_order) else "Original Gurobi"
+        )
+        ax.errorbar(
+            baseline_grouped["n"],
+            baseline_grouped["mean"],
+            yerr=baseline_grouped["sem"],
+            fmt=baseline_style["marker"],
+            linestyle="none",
+            markersize=7.0,
+            capsize=4,
+            capthick=1.2,
+            elinewidth=1.2,
+            markeredgewidth=1.1,
+            markeredgecolor=baseline_style["color"],
+            ecolor=baseline_style["color"],
+            color=baseline_style["color"],
+            label=baseline_label,
+        )
+        if np.isfinite(base_order) and np.isfinite(base_scale):
+            x_fit = np.linspace(float(baseline_grouped["n"].min()), float(baseline_grouped["n"].max()), 300)
+            ax.plot(x_fit, base_scale * (base_order ** x_fit),
+                    color=baseline_style["color"], linewidth=2.8, alpha=0.8, zorder=1)
+
+        chosen_pen_note: Optional[str] = None
+
+        for idx, layer in enumerate(layers_sorted):
+            layer_rows = pre_rows[pre_rows["layers"] == layer].copy()
+            if layer_rows.empty:
+                continue
+
+            seed_best = _apply_penalty_strategy(layer_rows, value_col, strategy)
+            if seed_best.empty:
+                continue
+
+            if strategy == "fixed" and "_pen_r" in seed_best.columns:
+                unique_pens = seed_best["_pen_r"].dropna().unique()
+                if len(unique_pens) == 1 and chosen_pen_note is None:
+                    chosen_pen_note = f"ρ = {unique_pens[0]:.2g} (globally selected)"
+
+            best = (
+                seed_best.groupby("n")[value_col]
+                .agg(["mean", "std", "count"])
+                .reset_index()
+                .sort_values("n")
+            )
+            best["sem"] = best["std"].fillna(0.0) / np.sqrt(best["count"])
+
+            style = series_styles.get(float(layer), {"color": fallback_cmap(idx % fallback_cmap.N), "marker": "o"})
+            fit_order, fit_scale = _fit_exponential_order(best["n"], best["mean"])
+            layer_label = _format_quantum_depth_label(layer)
+            label = (
+                f"p={layer_label} - O({fit_order:.2f}^N)" if np.isfinite(fit_order) else f"p={layer_label}"
+            )
+            ax.errorbar(
+                best["n"], best["mean"], yerr=best["sem"],
+                fmt=style["marker"], linestyle="none", markersize=7.4,
+                capsize=5, capthick=1.3, elinewidth=1.3, markeredgewidth=1.1,
+                markeredgecolor=style["color"], ecolor=style["color"], color=style["color"],
+                label=label,
+            )
+            if np.isfinite(fit_order) and np.isfinite(fit_scale):
+                x_fit = np.linspace(float(best["n"].min()), float(best["n"].max()), 300)
+                ax.plot(x_fit, fit_scale * (fit_order ** x_fit),
+                        color=style["color"], linewidth=2.6, alpha=0.75, zorder=1)
+
+        ax.set_title(title, fontsize=11, pad=8)
+        ax.set_xlabel("Number of variables N", fontsize=12)
+        ax.grid(axis="x", visible=False)
+        ax.grid(axis="y", which="major", linestyle="--", linewidth=0.8, alpha=0.45)
+        for side in ["left", "bottom", "top", "right"]:
+            ax.spines[side].set_visible(True)
+            ax.spines[side].set_alpha(0.85)
+            ax.spines[side].set_linewidth(1.1)
+        ax.tick_params(axis="both", which="major", direction="in", top=True, right=True, length=7, width=1.1, labelsize=11)
+        ax.tick_params(axis="both", which="minor", direction="in", top=True, right=True, length=3.5, width=0.9)
+        handles, labels_leg = ax.get_legend_handles_labels()
+        ax.legend(handles, labels_leg, frameon=True, framealpha=0.88, edgecolor="#CCCCCC",
+                  fontsize=9, loc="upper left", handlelength=2.4, handletextpad=0.6)
+        if strategy == "fixed" and chosen_pen_note:
+            ax.annotate(chosen_pen_note, xy=(0.98, 0.05), xycoords="axes fraction",
+                        fontsize=8.5, ha="right", va="bottom", color="#555555")
+
+    axes[0].set_ylabel(y_label, fontsize=12)
+    if y_log:
+        for ax in axes:
+            ax.set_yscale("log")
+            ax.yaxis.set_major_locator(mticker.LogLocator(base=10))
+            ax.yaxis.set_minor_locator(mticker.LogLocator(base=10, subs=np.arange(2, 10) * 0.1))
+            ax.yaxis.set_minor_formatter(mticker.NullFormatter())
+
+    suptitle = (
+        f"Quantum preconditioning scaling — penalty selection strategies  (ε = {eps_threshold * 100:g}%)"
+        if eps_threshold is not None
+        else "Quantum preconditioning scaling — penalty selection strategies"
+    )
+    fig.suptitle(suptitle, fontsize=13)
+    return fig
+
+
 def plot_family_param_comparison(
     summary_df: pd.DataFrame,
     family: str,
