@@ -1463,10 +1463,12 @@ def _apply_penalty_strategy(
     strategy="fixed":  single ρ minimising mean metric across all (n, seed).
     strategy="loo":    for each seed, ρ chosen by mean over other seeds at same N.
     """
+    all_rows = layer_rows.copy()
+    all_rows["_pen_r"] = all_rows["penalty"].round(3)
+
     valid = layer_rows[layer_rows[value_col].notna()].copy()
     if valid.empty:
         return pd.DataFrame()
-
     valid["_pen_r"] = valid["penalty"].round(3)
 
     if strategy == "oracle":
@@ -1477,8 +1479,28 @@ def _apply_penalty_strategy(
         )
 
     if strategy == "fixed":
-        pen_means = valid.groupby("_pen_r")[value_col].mean()
-        best_pen = round(float(pen_means.idxmin()), 3)
+        # Rank ρ by N-normalised hit rate: for each ρ, average the per-N hit fraction
+        # across ALL N values in the dataset, treating N values where ρ was not run as
+        # 0% hit rate.  This prevents a ρ that was only run at easy small N from winning
+        # just because it looks good on those few instances.
+        all_n = sorted(all_rows["n"].unique())
+        pen_avg_rate: dict[float, float] = {}
+        pen_mean_hit: dict[float, float] = {}
+        for p in all_rows["_pen_r"].unique():
+            rates = []
+            for n_val in all_n:
+                total_at_n = int((all_rows[(all_rows["n"] == n_val) & (all_rows["_pen_r"] == p)]).shape[0])
+                if total_at_n == 0:
+                    rates.append(0.0)
+                else:
+                    hits_at_n = int((valid[(valid["n"] == n_val) & (valid["_pen_r"] == p)]).shape[0])
+                    rates.append(hits_at_n / total_at_n)
+            pen_avg_rate[p] = float(np.mean(rates))
+            pen_valid = valid[valid["_pen_r"] == p]
+            pen_mean_hit[p] = float(pen_valid[value_col].mean()) if not pen_valid.empty else float("inf")
+        score_df = pd.DataFrame({"avg_rate": pen_avg_rate, "mean_hit": pen_mean_hit})
+        score_df = score_df.sort_values(["avg_rate", "mean_hit"], ascending=[False, True])
+        best_pen = round(float(score_df.index[0]), 3)
         fixed = valid[valid["_pen_r"] == best_pen].copy()
         return fixed.groupby(["n", "seed"], as_index=False).first()
 
@@ -1643,7 +1665,11 @@ def plot_layer_comparison_panel_strategies(
             if strategy == "fixed" and "_pen_r" in seed_best.columns:
                 unique_pens = seed_best["_pen_r"].dropna().unique()
                 if len(unique_pens) == 1 and chosen_pen_note is None:
-                    chosen_pen_note = f"ρ = {unique_pens[0]:.2g} (globally selected)"
+                    hit_n = int(layer_rows[value_col].notna().sum()) if value_col in layer_rows.columns else 0
+                    total_n = len(layer_rows)
+                    chosen_pen_note = (
+                        f"ρ = {unique_pens[0]:.2g}  (selected by hit rate: {hit_n}/{total_n})"
+                    )
 
             best = (
                 seed_best.groupby("n")[value_col]
