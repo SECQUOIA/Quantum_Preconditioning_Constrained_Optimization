@@ -1651,7 +1651,7 @@ def plot_layer_comparison_panel_strategies(
             ax.plot(x_fit, base_scale * (base_order ** x_fit),
                     color=baseline_style["color"], linewidth=2.8, alpha=0.8, zorder=1)
 
-        chosen_pen_note: Optional[str] = None
+        chosen_pen_lines: list[str] = []
 
         for idx, layer in enumerate(layers_sorted):
             layer_rows = pre_rows[pre_rows["layers"] == layer].copy()
@@ -1664,12 +1664,9 @@ def plot_layer_comparison_panel_strategies(
 
             if strategy == "fixed" and "_pen_r" in seed_best.columns:
                 unique_pens = seed_best["_pen_r"].dropna().unique()
-                if len(unique_pens) == 1 and chosen_pen_note is None:
-                    hit_n = int(layer_rows[value_col].notna().sum()) if value_col in layer_rows.columns else 0
-                    total_n = len(layer_rows)
-                    chosen_pen_note = (
-                        f"ρ = {unique_pens[0]:.2g}  (selected by hit rate: {hit_n}/{total_n})"
-                    )
+                if len(unique_pens) == 1:
+                    layer_label = _format_quantum_depth_label(layer)
+                    chosen_pen_lines.append(f"p={layer_label}: ρ={unique_pens[0]:.2g}")
 
             best = (
                 seed_best.groupby("n")[value_col]
@@ -1710,9 +1707,12 @@ def plot_layer_comparison_panel_strategies(
         handles, labels_leg = ax.get_legend_handles_labels()
         ax.legend(handles, labels_leg, frameon=True, framealpha=0.88, edgecolor="#CCCCCC",
                   fontsize=9, loc="upper left", handlelength=2.4, handletextpad=0.6)
-        if strategy == "fixed" and chosen_pen_note:
-            ax.annotate(chosen_pen_note, xy=(0.98, 0.05), xycoords="axes fraction",
-                        fontsize=8.5, ha="right", va="bottom", color="#555555")
+        if strategy == "fixed" and chosen_pen_lines:
+            ax.annotate(
+                "Selected ρ:  " + ",   ".join(chosen_pen_lines),
+                xy=(0.98, 0.03), xycoords="axes fraction",
+                fontsize=8.5, ha="right", va="bottom", color="#555555",
+            )
 
     axes[0].set_ylabel(y_label, fontsize=12)
     if y_log:
