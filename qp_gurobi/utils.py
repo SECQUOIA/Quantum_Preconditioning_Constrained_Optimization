@@ -1448,7 +1448,7 @@ def plot_layer_comparison(
 _PANEL_STRATEGIES: list[tuple[str, str]] = [
     ("oracle", "Oracle\n(best ρ per instance — upper bound)"),
     ("fixed",  "Fixed global ρ\n(single ρ, mean-optimal across all N & seeds)"),
-    ("loo",    "Cross-validated ρ\n(LOO over seeds within each N)"),
+    ("loo",    "Cross-validated ρ\n(held-out seeds within each N)"),
 ]
 
 
@@ -1461,7 +1461,7 @@ def _apply_penalty_strategy(
 
     strategy="oracle": retrospective best ρ per instance (upper bound).
     strategy="fixed":  single ρ minimising mean metric across all (n, seed).
-    strategy="loo":    for each seed, ρ chosen by mean over other seeds at same N.
+    strategy="loo":    cross-validated: for each seed, ρ chosen by mean over other seeds at same N.
     """
     all_rows = layer_rows.copy()
     all_rows["_pen_r"] = all_rows["penalty"].round(3)
@@ -1530,7 +1530,7 @@ def plot_layer_comparison_panel_strategies(
     y_log: bool = True,
     strategies: Optional[list[tuple[str, str]]] = None,
 ) -> plt.Figure:
-    """Three-panel scaling plot comparing oracle, fixed-global, and LOO penalty selection.
+    """Three-panel scaling plot comparing oracle, fixed-global, and cross-validated penalty selection.
 
     Produces panels side-by-side with a shared y-axis so the performance gap between
     strategies is immediately visible without axis rescaling tricks.
