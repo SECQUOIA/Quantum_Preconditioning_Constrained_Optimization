@@ -2292,7 +2292,7 @@ def plot_hit_time_vs_penalty(
     penalty_factor = (
         float(sub["penalty_factor"].dropna().iloc[0])
         if "penalty_factor" in sub.columns and sub["penalty_factor"].notna().any()
-        else 10.0
+        else 1.0
     )
 
     baseline_handle = plt.Line2D([0], [0], color="#353B55", linewidth=2.0)

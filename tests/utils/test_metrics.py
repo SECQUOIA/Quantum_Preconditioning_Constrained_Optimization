@@ -17,6 +17,7 @@ import pytest
 from qp_gurobi.utils import (
     PlotConfig,
     _aggregate_hit_time_stats,
+    plot_hit_time_vs_penalty,
     plot_performance_distribution,
     prepare_hit_time_metrics,
     prepare_penalty_metrics,
@@ -267,6 +268,27 @@ class TestPlotPerformanceDistribution:
         ]
         assert len(offsets) == 1
         assert offsets[0][0, 1] == pytest.approx(2.0)
+
+
+# ---------------------------------------------------------------------------
+# plot_hit_time_vs_penalty
+# ---------------------------------------------------------------------------
+
+def test__plot_hit_time_vs_penalty__given_missing_penalty_factor_column__uses_prepare_default():
+    # ARRANGE
+    summary_df, traj_by_presolve, cfg = _make_hit_df_fixture(
+        n_seeds=1, n_hitting=1, base_opt=10.0, eps=0.01, hit_times=[0.2]
+    )
+    hit_df = prepare_hit_time_metrics(
+        summary_df, traj_by_presolve, cfg, thresholds=[0.01]
+    ).drop(columns=["penalty_factor"])
+
+    # ACT
+    fig = plot_hit_time_vs_penalty(hit_df, cfg, presolve=True, thresholds=[0.01])
+
+    # ASSERT
+    legend_labels = [text.get_text() for text in fig.legends[0].get_texts()]
+    assert "Penalized average runtime (1x timeout penalty)" in legend_labels
 
 
 # ---------------------------------------------------------------------------
