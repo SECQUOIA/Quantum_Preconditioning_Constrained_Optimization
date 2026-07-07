@@ -1279,7 +1279,7 @@ def plot_layer_comparison(
 
     base_order, base_scale = _fit_exponential_order(baseline_grouped["n"], baseline_grouped["mean"])
     baseline_label = (
-        f"Original Gurobi - O({base_order:.2f}^N)"
+        f"Original Gurobi - $O({base_order:.2f}^n)$"
         if np.isfinite(base_order)
         else "Original Gurobi"
     )
@@ -1381,7 +1381,7 @@ def plot_layer_comparison(
                 else f", hits {min_hits}-{max_hits}/{total_hits}"
             )
         label = (
-            f"p={layer_label} - O({fit_order:.2f}^N){hit_range}"
+            f"p={layer_label} - $O({fit_order:.2f}^n)${hit_range}"
             if show_fit and np.isfinite(fit_order)
             else f"p={layer_label}{hit_range}"
         )
@@ -1418,7 +1418,7 @@ def plot_layer_comparison(
             y_fit = fit_scale * (fit_order ** x_fit)
             ax.plot(x_fit, y_fit, color=style["color"], linewidth=2.6, alpha=0.75, zorder=1)
 
-    ax.set_xlabel("Number of variables N")
+    ax.set_xlabel("Number of variables $n$")
     ax.set_ylabel(y_label)
     ax.grid(axis="x", visible=False)
     ax.grid(axis="y", which="major", linestyle="--", linewidth=0.8, alpha=0.45)
@@ -1628,7 +1628,7 @@ def plot_layer_comparison_panel_strategies(
 
     for ax, (strategy, title) in zip(axes, strategies):
         baseline_label = (
-            f"Original Gurobi - O({base_order:.2f}^N)" if np.isfinite(base_order) else "Original Gurobi"
+            f"Original Gurobi - $O({base_order:.2f}^n)$" if np.isfinite(base_order) else "Original Gurobi"
         )
         ax.errorbar(
             baseline_grouped["n"],
@@ -1680,7 +1680,7 @@ def plot_layer_comparison_panel_strategies(
             fit_order, fit_scale = _fit_exponential_order(best["n"], best["mean"])
             layer_label = _format_quantum_depth_label(layer)
             label = (
-                f"p={layer_label} - O({fit_order:.2f}^N)" if np.isfinite(fit_order) else f"p={layer_label}"
+                f"p={layer_label} - $O({fit_order:.2f}^n)$" if np.isfinite(fit_order) else f"p={layer_label}"
             )
             ax.errorbar(
                 best["n"], best["mean"], yerr=best["sem"],
@@ -1695,7 +1695,7 @@ def plot_layer_comparison_panel_strategies(
                         color=style["color"], linewidth=2.6, alpha=0.75, zorder=1)
 
         ax.set_title(title, fontsize=11, pad=8)
-        ax.set_xlabel("Number of variables N", fontsize=12)
+        ax.set_xlabel("Number of variables $n$", fontsize=12)
         ax.grid(axis="x", visible=False)
         ax.grid(axis="y", which="major", linestyle="--", linewidth=0.8, alpha=0.45)
         for side in ["left", "bottom", "top", "right"]:
@@ -1850,7 +1850,7 @@ def plot_sweep_comparison(
 
     base_order, base_scale = _fit_exponential_order(baseline_grouped["n"], baseline_grouped["mean"])
     baseline_label = (
-        f"Original Gurobi - O({base_order:.2f}^N)"
+        f"Original Gurobi - $O({base_order:.2f}^n)$"
         if np.isfinite(base_order)
         else "Original Gurobi"
     )
@@ -1882,7 +1882,7 @@ def plot_sweep_comparison(
         best["sem"] = best["std"].fillna(0.0) / np.sqrt(best["count"])
         style = style_map.get(sweeps, {"color": fallback_cmap(idx % fallback_cmap.N), "marker": "D"})
         fit_order, fit_scale = _fit_exponential_order(best["n"], best["mean"])
-        label = f"s={sweeps} - O({fit_order:.2f}^N)" if np.isfinite(fit_order) else f"s={sweeps}"
+        label = f"s={sweeps} - $O({fit_order:.2f}^n)$" if np.isfinite(fit_order) else f"s={sweeps}"
 
         ax.errorbar(
             best["n"],
@@ -1904,7 +1904,7 @@ def plot_sweep_comparison(
             x_fit = np.linspace(float(best["n"].min()), float(best["n"].max()), 300)
             ax.plot(x_fit, fit_scale * (fit_order ** x_fit), color=style["color"], linewidth=2.0, alpha=0.75)
 
-    ax.set_xlabel("Number of variables N")
+    ax.set_xlabel("Number of variables $n$")
     ax.set_ylabel(y_label)
     ax.grid(axis="x", visible=False)
     ax.grid(axis="y", which="major", linestyle="--", linewidth=0.8, alpha=0.45)
@@ -1963,7 +1963,7 @@ def plot_quantum_vs_classical_comparison(
 
     baseline_style = {"color": "#353B55", "marker": "s"}
     base_order, base_scale = _fit_exponential_order(baseline_grouped["n"], baseline_grouped["mean"])
-    baseline_label = f"Original Gurobi - O({base_order:.2f}^N)" if np.isfinite(base_order) else "Original Gurobi"
+    baseline_label = f"Original Gurobi - $O({base_order:.2f}^n)$" if np.isfinite(base_order) else "Original Gurobi"
     ax.errorbar(
         baseline_grouped["n"],
         baseline_grouped["mean"],
@@ -2009,7 +2009,7 @@ def plot_quantum_vs_classical_comparison(
         style = quantum_styles.get(layer, {"color": "#999999", "marker": "o"})
         fit_order, fit_scale = _fit_exponential_order(best["n"], best["mean"])
         layer_label = _format_quantum_depth_label(layer)
-        label = f"p={layer_label} - O({fit_order:.2f}^N)" if np.isfinite(fit_order) else f"p={layer_label}"
+        label = f"p={layer_label} - $O({fit_order:.2f}^n)$" if np.isfinite(fit_order) else f"p={layer_label}"
         ax.errorbar(
             best["n"], best["mean"], yerr=best["sem"], fmt=style["marker"], linestyle="none",
             markersize=6.0, capsize=4, capthick=1.1, elinewidth=1.1,
@@ -2036,7 +2036,7 @@ def plot_quantum_vs_classical_comparison(
         best["sem"] = best["std"].fillna(0.0) / np.sqrt(best["count"])
         color = classical_palette[idx % len(classical_palette)]
         fit_order, fit_scale = _fit_exponential_order(best["n"], best["mean"])
-        label = f"s={sweeps} - O({fit_order:.2f}^N)" if np.isfinite(fit_order) else f"s={sweeps}"
+        label = f"s={sweeps} - $O({fit_order:.2f}^n)$" if np.isfinite(fit_order) else f"s={sweeps}"
         ax.errorbar(
             best["n"], best["mean"], yerr=best["sem"], fmt="D", linestyle="none",
             markersize=6.0, capsize=4, capthick=1.1, elinewidth=1.1,
@@ -2047,7 +2047,7 @@ def plot_quantum_vs_classical_comparison(
             x_fit = np.linspace(float(best["n"].min()), float(best["n"].max()), 300)
             ax.plot(x_fit, fit_scale * (fit_order ** x_fit), color=color, linewidth=2.0, alpha=0.75)
 
-    ax.set_xlabel("Number of variables N")
+    ax.set_xlabel("Number of variables $n$")
     ax.set_ylabel(y_label)
     ax.grid(axis="x", visible=False)
     ax.grid(axis="y", which="major", linestyle="--", linewidth=0.8, alpha=0.45)
@@ -2672,7 +2672,7 @@ def plot_performance_distribution(
     ax_main.set_xticks(range(len(Ns_sorted)))
     ax_main.set_xticklabels([str(n) for n in Ns_sorted], fontsize=12)
     ax_main.set_xlim(*xlim)
-    ax_main.set_xlabel("Number of variables N", fontsize=14)
+    ax_main.set_xlabel("Number of variables $n$", fontsize=14)
     ax_main.set_ylabel("")
     ax_main.grid(axis="y", which="major", linestyle="--", linewidth=0.6, alpha=0.35)
     ax_main.grid(axis="x", visible=False)
