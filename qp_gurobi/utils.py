@@ -2452,7 +2452,8 @@ def plot_performance_distribution(
 ) -> plt.Figure:
     """Fig-1b analog: performance distribution across seeds per N, density-coloured.
 
-    Performance (%) = (baseline_obj / precond_obj) × 100.
+    Performance (%) is 100 minus the objective degradation from the baseline,
+    normalized by ``abs(baseline objective)``.
     Top strip shows instances at exactly 100% with fraction labels; main panel
     shows suboptimal instances on a log-scale complement axis (gap = 100 − perf%).
     """
@@ -2494,15 +2495,17 @@ def plot_performance_distribution(
             continue
         pre = pre.merge(bl, on=["n", "seed"], how="left")
         pre = pre[pre["bl_opt"].notna()].copy()
-        pre["alpha"] = pre["objective_baseline"] / pre["bl_opt"]
-        pre["perf"] = 100.0 / pre["alpha"]   # 100% = exact match
+        pre = pre[pre["bl_opt"] != 0].copy()
+        pre["perf"] = 100.0 * (
+            1.0 - (pre["objective_baseline"] - pre["bl_opt"]) / pre["bl_opt"].abs()
+        )
 
         ends = _families.get(label, _fb_families[i % len(_fb_families)])
         cmap_i = LinearSegmentedColormap.from_list(f"d_{i}", [ends[0], ends[1]])
 
         for n_val, grp in pre.groupby("n"):
             if "penalty" in grp.columns and grp["penalty"].notna().any():
-                sub = grp.loc[grp.groupby("seed")["alpha"].idxmin()]
+                sub = grp.loc[grp.groupby("seed")["perf"].idxmax()]
             else:
                 sub = grp
             perfs = sub["perf"].to_numpy()

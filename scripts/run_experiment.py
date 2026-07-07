@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import re
 import sys
@@ -14,6 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from qp_gurobi.instance import trajectory_to_running_best
 from qp_gurobi.solve import solve_from_paths
 
 
@@ -80,6 +82,15 @@ def _family_tag(family: str, layers: int | None, sweeps: int | None) -> str:
     return f"classical_sweeps={sweeps}"
 
 
+def _seed_tag(seeds: List[int]) -> str:
+    """Return a compact, collision-resistant filename tag for seed subsets."""
+    compact = "_".join(str(seed) for seed in seeds)
+    if len(compact) <= 40:
+        return compact
+    digest = hashlib.sha1(",".join(str(seed) for seed in seeds).encode("ascii")).hexdigest()[:10]
+    return f"listN{len(seeds)}_{digest}"
+
+
 def main() -> int:
     """Run the experiment CLI and write summary/trajectory outputs."""
     ap = argparse.ArgumentParser(description="Solve baseline and preconditioned instances with hard bisection constraint.")
@@ -122,7 +133,7 @@ def main() -> int:
             "Path for the long-format trajectory CSV (one row per MIPSol callback event). "
             "Columns: seed, layers, sweeps, preconditioner_family, name, penalty, presolve, event_idx, "
             "time_sec, orig_obj, running_best_orig_obj. "
-            "Defaults to results/N=<n>_<family>_presolve_<mode>_trajectories.csv alongside the main output."
+            "Defaults to a results/ CSV with matching N, family, seed, and presolve tags."
         ),
     )
 
@@ -138,6 +149,10 @@ def main() -> int:
             raise SystemExit("--sweeps is required when --preconditioner=classical")
         if args.layers is not None:
             raise SystemExit("--layers cannot be used when --preconditioner=classical")
+
+    seed_selectors = [args.seed is not None, args.seeds is not None, args.all_seeds]
+    if sum(seed_selectors) > 1:
+        raise SystemExit("Use only one of --seed, --seeds, or --all-seeds")
 
     data_root = args.data_root
     # If invoked from a subdirectory (e.g. `cd scripts`), make relative paths
@@ -159,6 +174,7 @@ def main() -> int:
 
     all_rows: List[Dict[str, object]] = []
     family_tag = _family_tag(args.preconditioner, args.layers, args.sweeps)
+    seed_tag = "all" if args.all_seeds else _seed_tag(seeds)
 
     for seed in seeds:
         instance_dir = n_dir / f"seed={seed}"
@@ -200,19 +216,10 @@ def main() -> int:
             row["preconditioner_family"] = args.preconditioner
             row["layers"] = int(args.layers) if args.layers is not None else None
             row["sweeps"] = int(args.sweeps) if args.sweeps is not None else None
-            row["presolve"] = not args.no_presolve
             all_rows.append(row)
 
     out = args.out
     if out is None:
-        if args.all_seeds:
-            seed_tag = "all"
-        elif args.seeds is not None:
-            compact = re.sub(r"\s+", "", str(args.seeds))
-            compact = compact.replace(",", "_")
-            seed_tag = compact if len(compact) <= 40 else f"listN{len(seeds)}"
-        else:
-            seed_tag = str(args.seed) if args.seed is not None else "0"
         mode = "off" if args.no_presolve else "on"
         if args.all_seeds:
             # All seeds aggregated into one file; seed_tag not needed in name.
@@ -237,16 +244,19 @@ def main() -> int:
     traj_out = args.trajectory_out
     if traj_out is None:
         mode = "off" if args.no_presolve else "on"
-        traj_out = Path("results") / f"N={args.n}_{family_tag}_presolve_{mode}_trajectories.csv"
+        if args.all_seeds:
+            traj_out = Path("results") / f"N={args.n}_{family_tag}_presolve_{mode}_trajectories.csv"
+        else:
+            traj_out = Path("results") / f"N={args.n}_{family_tag}_seeds={seed_tag}_presolve_{mode}_trajectories.csv"
     if traj_out:
         traj_out.parent.mkdir(parents=True, exist_ok=True)
         traj_rows: List[Dict[str, object]] = []
         for row in all_rows:
             raw = row.get("trajectory", "[]")
             events: List[List[float]] = json.loads(raw) if raw else []
-            running_best = float("inf")
-            for idx, (t, orig_obj) in enumerate(events):
-                running_best = min(running_best, orig_obj)
+            trajectory = [(float(t), float(orig_obj)) for t, orig_obj in events]
+            running_best = trajectory_to_running_best(trajectory)
+            for idx, ((t, orig_obj), (_, best_orig_obj)) in enumerate(zip(trajectory, running_best)):
                 traj_rows.append({
                     "seed": row["seed"],
                     "layers": row["layers"],
@@ -258,7 +268,7 @@ def main() -> int:
                     "event_idx": idx,
                     "time_sec": t,
                     "orig_obj": orig_obj,
-                    "running_best_orig_obj": running_best,
+                    "running_best_orig_obj": best_orig_obj,
                 })
         if traj_rows:
             traj_fieldnames = list(traj_rows[0].keys())

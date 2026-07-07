@@ -62,10 +62,17 @@ def main() -> int:
         dtype={"name": "string", "x_bits": "string", "z_bits": "string"},
     )
 
-    required_cols = {"name", "n", "objective_baseline", "x_bits", "sum_z"}
+    required_cols = {"name", "n", "seed", "objective_baseline", "x_bits", "sum_z"}
     missing = required_cols - set(df.columns)
     if missing:
         raise SystemExit(f"CSV missing required columns: {sorted(missing)}")
+
+    seed_values = pd.to_numeric(df["seed"], errors="coerce")
+    if seed_values.isna().any():
+        raise SystemExit("CSV seed column contains non-integer values")
+    df = df[seed_values.astype(int) == args.seed].copy()
+    if df.empty:
+        raise SystemExit(f"CSV contains no rows for seed={args.seed}")
 
     # Basic checks
     if int(df["n"].max()) != args.n:

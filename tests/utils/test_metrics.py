@@ -17,6 +17,7 @@ import pytest
 from qp_gurobi.utils import (
     PlotConfig,
     _aggregate_hit_time_stats,
+    plot_performance_distribution,
     prepare_hit_time_metrics,
     prepare_penalty_metrics,
 )
@@ -196,6 +197,76 @@ class TestPrepareHitTimeMetrics:
         assert variant_rows["hit_found"].all()
         # hit_time must be ≤ the runtime (0.2 is the crossing event time)
         assert variant_rows["hit_time_sec"].iloc[0] == pytest.approx(0.2, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# plot_performance_distribution
+# ---------------------------------------------------------------------------
+
+class TestPlotPerformanceDistribution:
+    def test__plot_performance_distribution__given_negative_objective__worse_solution_has_positive_gap(self):
+        # ARRANGE
+        df = pd.DataFrame(
+            [
+                {"name": "baseline", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -10.0, "penalty": None},
+                {"name": "precond_pen=0.100", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -9.5, "penalty": 0.1},
+            ]
+        )
+
+        # ACT
+        fig = plot_performance_distribution({"p=1": df}, presolve=True, reference_lines=[])
+
+        # ASSERT
+        offsets = [
+            collection.get_offsets()
+            for collection in fig.axes[1].collections
+            if len(collection.get_offsets())
+        ]
+        assert len(offsets) == 1
+        assert offsets[0][0, 1] == pytest.approx(5.0)
+
+    def test__plot_performance_distribution__given_positive_objective__worse_solution_has_positive_gap(self):
+        # ARRANGE
+        df = pd.DataFrame(
+            [
+                {"name": "baseline", "n": 8, "seed": 0, "presolve": True, "objective_baseline": 10.0, "penalty": None},
+                {"name": "precond_pen=0.100", "n": 8, "seed": 0, "presolve": True, "objective_baseline": 10.5, "penalty": 0.1},
+            ]
+        )
+
+        # ACT
+        fig = plot_performance_distribution({"p=1": df}, presolve=True, reference_lines=[])
+
+        # ASSERT
+        offsets = [
+            collection.get_offsets()
+            for collection in fig.axes[1].collections
+            if len(collection.get_offsets())
+        ]
+        assert len(offsets) == 1
+        assert offsets[0][0, 1] == pytest.approx(5.0)
+
+    def test__plot_performance_distribution__given_multiple_penalties__plots_best_ratio_for_seed(self):
+        # ARRANGE
+        df = pd.DataFrame(
+            [
+                {"name": "baseline", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -10.0, "penalty": None},
+                {"name": "precond_pen=0.100", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -9.5, "penalty": 0.1},
+                {"name": "precond_pen=0.200", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -9.8, "penalty": 0.2},
+            ]
+        )
+
+        # ACT
+        fig = plot_performance_distribution({"p=1": df}, presolve=True, reference_lines=[])
+
+        # ASSERT
+        offsets = [
+            collection.get_offsets()
+            for collection in fig.axes[1].collections
+            if len(collection.get_offsets())
+        ]
+        assert len(offsets) == 1
+        assert offsets[0][0, 1] == pytest.approx(2.0)
 
 
 # ---------------------------------------------------------------------------
