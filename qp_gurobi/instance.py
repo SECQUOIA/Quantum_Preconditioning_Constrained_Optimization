@@ -20,11 +20,13 @@ class IsingInstance:
     quadratic: Dict[Tuple[int, int], float]  # keys are (i,j) with i<j
 
     def quadratic_items(self) -> Iterable[Tuple[int, int, float]]:
+        """Yield quadratic coefficients as ``(i, j, weight)`` triples."""
         for (i, j), w in self.quadratic.items():
             yield i, j, w
 
 
 def _parse_numbers(line: str) -> List[float]:
+    """Parse whitespace-separated numbers from a line."""
     return [float(x) for x in line.strip().split()]
 
 
@@ -136,3 +138,21 @@ def bisection_violation(z_bits: List[int]) -> int:
     """Return sum(z_i); feasibility requires 0."""
 
     return int(sum(z_bits))
+
+
+def trajectory_to_running_best(
+    trajectory: List[Tuple[float, float]],
+) -> List[Tuple[float, float]]:
+    """Convert raw (time, obj) incumbent events to a running-minimum trajectory.
+
+    Returns a list of (time_sec, best_orig_obj_so_far) where each entry reflects
+    the best original-objective value seen up to and including that time point.
+    Events are assumed to already be sorted by time (as recorded by the callback).
+    """
+    result: List[Tuple[float, float]] = []
+    best = float("inf")
+    for t, v in trajectory:
+        if v < best:
+            best = v
+        result.append((t, best))
+    return result

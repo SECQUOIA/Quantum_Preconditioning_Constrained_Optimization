@@ -1,5 +1,7 @@
 # Data is large / not needed in repo
 Data/
+one_equality/
+one_equality_new/
 
 # Python
 __pycache__/
@@ -17,6 +19,6 @@ venv/
 .DS_Store
 .vscode/
 
-# Keep results CSVs, but ignore verbose solver logs by default
-results/logs_*/
+# Keep results CSVs, but ignore verbose solver logs (regenerable from --log-dir)
+logs/
 results/**/*.log

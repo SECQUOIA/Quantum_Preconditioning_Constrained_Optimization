@@ -2,10 +2,10 @@
 
 This repo contains a tiny workflow to compare:
 
-- **Baseline** graph-bisection objective from `Data/N=.../seed=.../problem.dat`
-- **Preconditioned** objectives from `Data/N=.../seed=.../n_qaoa_layers=.../preconditioned_problem_pen=...dat`
+- **Baseline** graph bipartitioning objective from `one_equality_new/complete_random/N=.../seed=.../problem.dat`
+- **Preconditioned** objectives from `one_equality_new/complete_random/N=.../seed=.../n_qaoa_layers=.../preconditioned_problem_pen=<value>.dat`
 
-Both are solved with the **same hard bisection constraint** (equal-size partition):
+Both are solved with the **same hard bipartitioning constraint** (equal-size partition):
 
 - variables are represented internally as `x_i ∈ {0,1}`
 - with `z_i = 2x_i - 1 ∈ {−1,+1}`
@@ -24,10 +24,36 @@ The key comparison is done by **re-evaluating** each preconditioned solution und
 From the repo root:
 
 ```bash
-python3 scripts/run_experiment.py --n 8 --seed 0 --layers 1 --out results/demo.csv
+python3 scripts/run_experiment.py --n 8 --seed 0 --layers 1 --out results/test.csv
 ```
 
-If `gurobipy` is installed in a specific conda env (e.g. `benchmark`), run with that env’s Python:
+By default, the runner looks under `one_equality_new/complete_random`.
+
+Multi-seed run (flexible: discovers whatever penalty files exist per seed):
+
+```bash
+python3 scripts/run_experiment.py --n 20 --layers 1 --seeds 0,1,2 --out results/N=20_seeds=0_1_2_layers=1.csv
+```
+
+Or run all available `seed=*` folders under a given `N=...`:
+
+```bash
+python3 scripts/run_experiment.py --n 20 --layers 1 --all-seeds --out results/N=20_seeds=all_layers=1.csv
+```
+
+Disable Gurobi presolve for a pure branch-and-bound comparison:
+
+```bash
+python3 scripts/run_experiment.py --n 20 --layers 1 --all-seeds --no-presolve --out results/N=20_nopresolve_layers=1.csv
+```
+
+The runner also supports solver controls and diagnostics:
+
+```bash
+python3 scripts/run_experiment.py --n 20 --layers 1 --all-seeds --threads 8 --gurobi-seed 0 --log-dir logs
+```
+
+Use `--show-logs` to stream Gurobi logs to the console. A trajectory CSV is written by default next to the summary CSV; pass `--trajectory-out path/to/file.csv` to choose its path.
 
 This writes a CSV with one row for the baseline solve and one row per `penalty` file.
 
@@ -43,7 +69,7 @@ Open and run the notebook:
 
 - `notebooks/analysis.ipynb`
 
-It expects `results/demo.csv` by default.
+It reads from the committed CSVs under `results/`.
 
 ## Output columns
 
@@ -52,6 +78,9 @@ It expects `results/demo.csv` by default.
 - `x_bits`: bitstring of `x ∈ {0,1}`
 - `z_bits`: visualization of `z ∈ {−1,+1}` as `-` and `+`
 - `sum_z`: should be `0` due to hard constraint
+- `time_to_best_sec`: first time when the best baseline-objective incumbent was found
+- `trajectory`: raw incumbent events as `(time_sec, objective_baseline)` pairs
+- `presolve`: whether Gurobi presolve was enabled for the solve
 
 ## Code layout
 

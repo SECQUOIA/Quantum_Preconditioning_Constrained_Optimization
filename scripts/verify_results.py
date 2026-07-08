@@ -5,7 +5,6 @@ import argparse
 import math
 import sys
 from pathlib import Path
-
 import pandas as pd
 
 # Allow running as a script without installing the package.
@@ -17,6 +16,7 @@ from qp_gurobi.instance import eval_ising, read_dat, z_from_x
 
 
 def _parse_x_bits(x_bits: str, n: int) -> list[int]:
+    """Parse a compact binary solution string into bits."""
     s = str(x_bits).strip()
     if len(s) != n:
         # tolerate missing leading zeros
@@ -27,6 +27,7 @@ def _parse_x_bits(x_bits: str, n: int) -> list[int]:
 
 
 def main() -> int:
+    """Run the result verification CLI."""
     ap = argparse.ArgumentParser(
         description=(
             "Verify a results CSV by recomputing baseline objective from stored bitstrings "
@@ -34,17 +35,26 @@ def main() -> int:
         )
     )
     ap.add_argument("--csv", type=Path, required=True, help="Results CSV to verify")
-    ap.add_argument("--data-root", type=Path, default=Path("Data"), help="Root Data folder (default: Data)")
+    ap.add_argument(
+        "--data-root",
+        type=Path,
+        default=Path("one_equality_new") / "complete_random",
+        help="Root data folder (default: one_equality_new/complete_random)",
+    )
     ap.add_argument("--n", type=int, required=True, help="Problem size N")
     ap.add_argument("--seed", type=int, required=True, help="Seed folder")
     ap.add_argument("--tol", type=float, default=1e-6, help="Tolerance for objective comparison")
 
     args = ap.parse_args()
 
+    data_root = args.data_root
+    if not data_root.is_absolute():
+        data_root = (REPO_ROOT / data_root).resolve()
+
     if args.n % 2 != 0:
         raise SystemExit(f"N must be even for bisection, got {args.n}")
 
-    baseline_path = args.data_root / f"N={args.n}" / f"seed={args.seed}" / "problem.dat"
+    baseline_path = data_root / f"N={args.n}" / f"seed={args.seed}" / "problem.dat"
     baseline = read_dat(baseline_path)
 
     df = pd.read_csv(
@@ -52,10 +62,17 @@ def main() -> int:
         dtype={"name": "string", "x_bits": "string", "z_bits": "string"},
     )
 
-    required_cols = {"name", "n", "objective_baseline", "x_bits", "sum_z"}
+    required_cols = {"name", "n", "seed", "objective_baseline", "x_bits", "sum_z"}
     missing = required_cols - set(df.columns)
     if missing:
         raise SystemExit(f"CSV missing required columns: {sorted(missing)}")
+
+    seed_values = pd.to_numeric(df["seed"], errors="coerce")
+    if seed_values.isna().any():
+        raise SystemExit("CSV seed column contains non-integer values")
+    df = df[seed_values.astype(int) == args.seed].copy()
+    if df.empty:
+        raise SystemExit(f"CSV contains no rows for seed={args.seed}")
 
     # Basic checks
     if int(df["n"].max()) != args.n:
