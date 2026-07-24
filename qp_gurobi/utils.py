@@ -191,6 +191,40 @@ def _fit_exponential_order(x: Iterable[float], y: Iterable[float]) -> tuple[floa
     return base, scale
 
 
+def _fit_exponential_with_uncertainty(
+    x: Iterable[float],
+    y_mean: Iterable[float],
+    y_sem: Iterable[float],
+) -> tuple:
+    """Weighted polyfit of y = scale * base^x; return (base, scale, sigma_base).
+
+    Weights are 1/sigma_log where sigma_log ≈ sem/mean.
+    Returns (nan, nan, nan) when fewer than three valid points.
+    """
+    x_arr = np.asarray(list(x), dtype=float)
+    m_arr = np.asarray(list(y_mean), dtype=float)
+    s_arr = np.asarray(list(y_sem), dtype=float)
+    valid = (
+        np.isfinite(x_arr) & np.isfinite(m_arr) & (m_arr > 0)
+        & np.isfinite(s_arr) & (s_arr > 0)
+    )
+    if np.sum(valid) < 3:
+        return float("nan"), float("nan"), float("nan")
+    xv, mv, sv = x_arr[valid], m_arr[valid], s_arr[valid]
+    w = mv / sv  # weight ∝ 1/sigma_log since sigma_log ≈ sem/mean
+    try:
+        (slope, intercept), cov = np.polyfit(xv, np.log(mv), 1, w=w, cov=True)
+    except (np.linalg.LinAlgError, ValueError):
+        try:
+            (slope, intercept), cov = np.polyfit(xv, np.log(mv), 1, cov=True)
+        except Exception:
+            return float("nan"), float("nan"), float("nan")
+    base = float(np.exp(slope))
+    scale = float(np.exp(intercept))
+    sigma_base = float(base * np.sqrt(max(float(cov[0, 0]), 0.0)))
+    return base, scale, sigma_base
+
+
 def _filter_rows_reaching_original_optimum(
     df: pd.DataFrame,
     tol: float = 1e-9,
@@ -907,7 +941,7 @@ def plot_ratio_minus_one(pre: pd.DataFrame, cfg: PlotConfig) -> plt.Figure:
             markeredgewidth=1.1,
             markeredgecolor=palette[presolve],
             color=palette[presolve],
-            label="Presolve on" if presolve else "Presolve off",
+            label="Presolve enabled" if presolve else "Presolve disabled",
         )
 
     ax.axhline(0.0, color="#353B55", linestyle="--", linewidth=1.4, alpha=0.65)
@@ -1108,6 +1142,7 @@ def plot_layer_comparison(
     annotate_counts: bool = False,
     traj_df: Optional[pd.DataFrame] = None,
     eps_threshold: Optional[float] = None,
+    penalty_strategy: str = "oracle",
 ) -> plt.Figure:
     """Plot quantum scaling across QAOA layer counts and problem sizes."""
     if eps_threshold is None:
@@ -1239,15 +1274,9 @@ def plot_layer_comparison(
             grouped["penalty"] = np.nan
             best = grouped
         else:
-            # per-seed oracle: for each (N, seed) pick the ρ with the lowest hit time
-            valid = layer_rows[layer_rows[value_col].notna()].copy()
-            if valid.empty:
+            seed_best = _apply_penalty_strategy(layer_rows, value_col, penalty_strategy)
+            if seed_best.empty:
                 continue
-            seed_best = (
-                valid.sort_values([value_col, "penalty"])
-                .groupby(["n", "seed"], as_index=False)
-                .first()
-            )
             best = (
                 seed_best.groupby("n")[value_col]
                 .agg(["mean", "std", "count"])
@@ -1277,12 +1306,15 @@ def plot_layer_comparison(
     baseline_grouped["total_count"] = baseline_grouped["n"].map(total_seed_counts).fillna(baseline_grouped["count"]).astype(int)
     baseline_grouped["sem"] = baseline_grouped["std"].fillna(0.0) / np.sqrt(baseline_grouped["count"])
 
-    base_order, base_scale = _fit_exponential_order(baseline_grouped["n"], baseline_grouped["mean"])
-    baseline_label = (
-        f"Original Gurobi - $O({base_order:.2f}^n)$"
-        if np.isfinite(base_order)
-        else "Original Gurobi"
+    base_order, base_scale, base_sigma = _fit_exponential_with_uncertainty(
+        baseline_grouped["n"], baseline_grouped["mean"], baseline_grouped["sem"]
     )
+    if np.isfinite(base_order) and np.isfinite(base_sigma):
+        baseline_label = f"Original Gurobi - $O(({base_order:.2f}\\pm{base_sigma:.2f})^n)$"
+    elif np.isfinite(base_order):
+        baseline_label = f"Original Gurobi - $O({base_order:.2f}^n)$"
+    else:
+        baseline_label = "Original Gurobi"
     baseline_style = series_styles["baseline"]
     ax.errorbar(
         baseline_grouped["n"],
@@ -1314,8 +1346,7 @@ def plot_layer_comparison(
             )
     if np.isfinite(base_order) and np.isfinite(base_scale):
         x_fit = np.linspace(float(baseline_grouped["n"].min()), float(baseline_grouped["n"].max()), 300)
-        y_fit = base_scale * (base_order ** x_fit)
-        ax.plot(x_fit, y_fit, color=baseline_style["color"], linewidth=2.8, alpha=0.8, zorder=1)
+        ax.plot(x_fit, base_scale * (base_order ** x_fit), color=baseline_style["color"], linewidth=2.8, alpha=0.8, zorder=1)
 
     if eps_threshold is None and metric == "time_to_best_sec":
         baseline_runtime_seed = (
@@ -1363,9 +1394,9 @@ def plot_layer_comparison(
         best = matching[0].sort_values("n")
         best["sem"] = best["std"].fillna(0.0) / np.sqrt(best["count"])
         style = series_styles.get(layer, {"color": fallback_cmap(idx % fallback_cmap.N), "marker": "o"})
-        fit_order, fit_scale = _fit_exponential_order(best["n"], best["mean"])
         layer_label = _format_quantum_depth_label(layer)
-        show_fit = not (
+        is_inf = float(layer) == float("inf")
+        show_fit = not is_inf and not (
             common_converged_only
             and metric == "time_to_best_sec"
             and float(layer) in {2.0, 3.0}
@@ -1380,11 +1411,19 @@ def plot_layer_comparison(
                 if min_hits == max_hits
                 else f", hits {min_hits}-{max_hits}/{total_hits}"
             )
-        label = (
-            f"p={layer_label} - $O({fit_order:.2f}^n)${hit_range}"
-            if show_fit and np.isfinite(fit_order)
-            else f"p={layer_label}{hit_range}"
-        )
+        if show_fit:
+            fit_order, fit_scale, fit_sigma = _fit_exponential_with_uncertainty(
+                best["n"], best["mean"], best["sem"]
+            )
+            if np.isfinite(fit_order) and np.isfinite(fit_sigma):
+                label = f"p={layer_label} - $O(({fit_order:.2f}\\pm{fit_sigma:.2f})^n)${hit_range}"
+            elif np.isfinite(fit_order):
+                label = f"p={layer_label} - $O({fit_order:.2f}^n)${hit_range}"
+            else:
+                label = f"p={layer_label}{hit_range}"
+        else:
+            fit_order = fit_scale = float("nan")
+            label = f"p={layer_label}{hit_range}"
         ax.errorbar(
             best["n"],
             best["mean"],
@@ -1415,8 +1454,7 @@ def plot_layer_comparison(
                 )
         if show_fit and np.isfinite(fit_order) and np.isfinite(fit_scale):
             x_fit = np.linspace(float(best["n"].min()), float(best["n"].max()), 300)
-            y_fit = fit_scale * (fit_order ** x_fit)
-            ax.plot(x_fit, y_fit, color=style["color"], linewidth=2.6, alpha=0.75, zorder=1)
+            ax.plot(x_fit, fit_scale * (fit_order ** x_fit), color=style["color"], linewidth=2.6, alpha=0.75, zorder=1)
 
     ax.set_xlabel("Number of variables $n$")
     ax.set_ylabel(y_label)
@@ -1606,7 +1644,9 @@ def plot_layer_comparison_panel_strategies(
     )
     baseline_grouped["sem"] = baseline_grouped["std"].fillna(0.0) / np.sqrt(baseline_grouped["count"])
 
-    base_order, base_scale = _fit_exponential_order(baseline_grouped["n"], baseline_grouped["mean"])
+    base_order, base_scale, base_sigma = _fit_exponential_with_uncertainty(
+        baseline_grouped["n"], baseline_grouped["mean"], baseline_grouped["sem"]
+    )
     baseline_style = {"color": "#353B55", "marker": "s"}
     series_styles = {
         1.0: {"color": "#42C6C6", "marker": "o"},
@@ -1627,9 +1667,12 @@ def plot_layer_comparison_panel_strategies(
         axes = [axes]
 
     for ax, (strategy, title) in zip(axes, strategies):
-        baseline_label = (
-            f"Original Gurobi - $O({base_order:.2f}^n)$" if np.isfinite(base_order) else "Original Gurobi"
-        )
+        if np.isfinite(base_order) and np.isfinite(base_sigma):
+            baseline_label = f"Original Gurobi - $O(({base_order:.2f}\\pm{base_sigma:.2f})^n)$"
+        elif np.isfinite(base_order):
+            baseline_label = f"Original Gurobi - $O({base_order:.2f}^n)$"
+        else:
+            baseline_label = "Original Gurobi"
         ax.errorbar(
             baseline_grouped["n"],
             baseline_grouped["mean"],
@@ -1677,11 +1720,21 @@ def plot_layer_comparison_panel_strategies(
             best["sem"] = best["std"].fillna(0.0) / np.sqrt(best["count"])
 
             style = series_styles.get(float(layer), {"color": fallback_cmap(idx % fallback_cmap.N), "marker": "o"})
-            fit_order, fit_scale = _fit_exponential_order(best["n"], best["mean"])
+            is_inf = float(layer) == float("inf")
             layer_label = _format_quantum_depth_label(layer)
-            label = (
-                f"p={layer_label} - $O({fit_order:.2f}^n)$" if np.isfinite(fit_order) else f"p={layer_label}"
-            )
+            if not is_inf:
+                fit_order, fit_scale, fit_sigma = _fit_exponential_with_uncertainty(
+                    best["n"], best["mean"], best["sem"]
+                )
+                if np.isfinite(fit_order) and np.isfinite(fit_sigma):
+                    label = f"p={layer_label} - $O(({fit_order:.2f}\\pm{fit_sigma:.2f})^n)$"
+                elif np.isfinite(fit_order):
+                    label = f"p={layer_label} - $O({fit_order:.2f}^n)$"
+                else:
+                    label = f"p={layer_label}"
+            else:
+                fit_order = fit_scale = float("nan")
+                label = f"p={layer_label}"
             ax.errorbar(
                 best["n"], best["mean"], yerr=best["sem"],
                 fmt=style["marker"], linestyle="none", markersize=7.4,
@@ -1689,7 +1742,7 @@ def plot_layer_comparison_panel_strategies(
                 markeredgecolor=style["color"], ecolor=style["color"], color=style["color"],
                 label=label,
             )
-            if np.isfinite(fit_order) and np.isfinite(fit_scale):
+            if not is_inf and np.isfinite(fit_order) and np.isfinite(fit_scale):
                 x_fit = np.linspace(float(best["n"].min()), float(best["n"].max()), 300)
                 ax.plot(x_fit, fit_scale * (fit_order ** x_fit),
                         color=style["color"], linewidth=2.6, alpha=0.75, zorder=1)
@@ -1731,6 +1784,235 @@ def plot_layer_comparison_panel_strategies(
     return fig
 
 
+_ORACLE_LOO_STRATEGIES: list[tuple[str, str]] = [
+    ("oracle", "Oracle\n(best ρ per instance — upper bound)"),
+    ("loo",    "Cross-validated ρ\n(held-out seeds within each N)"),
+]
+
+
+def _compute_eps_hit_col(
+    sub: pd.DataFrame,
+    baseline_opt: pd.DataFrame,
+    traj_df: pd.DataFrame,
+    eps_threshold: float,
+) -> tuple[pd.DataFrame, str]:
+    """Attach eps_hit_time column to sub; return (sub_with_col, value_col)."""
+    _bl_lookup = {
+        (int(r.n), int(r.seed)): float(r.baseline_opt)
+        for r in baseline_opt.itertuples()
+        if pd.notna(getattr(r, "baseline_opt", None))
+    }
+    _t = traj_df.copy()
+    _t["_bopt"] = [_bl_lookup.get((int(n), int(s))) for n, s in zip(_t["n"], _t["seed"])]
+    _t = _t[_t["_bopt"].notna()].copy()
+    _t["_thr"] = _t["_bopt"] + _t["_bopt"].abs() * eps_threshold
+    _t["_pk"] = _t["penalty"].fillna(-1e9)
+    sub = sub.copy()
+    sub["_pk"] = sub["penalty"].fillna(-1e9)
+    _gcols = ["n", "name", "seed", "_pk"] + (["layers"] if "layers" in _t.columns else [])
+    _eps_rows: list[dict] = []
+    for _keys, _grp in _t.groupby(_gcols):
+        _thr_val = float(_grp["_thr"].iloc[0])
+        _sg = _grp.sort_values("event_idx")
+        _hit = _sg.loc[_sg["running_best_orig_obj"] <= _thr_val + 1e-8, "time_sec"]
+        _kd = dict(zip(_gcols, _keys if isinstance(_keys, tuple) else (_keys,)))
+        _kd["eps_hit_time"] = float(_hit.iloc[0]) if not _hit.empty else float("nan")
+        _eps_rows.append(_kd)
+    _eps_df = pd.DataFrame(_eps_rows)
+    _mcols = [c for c in _gcols if c in sub.columns]
+    sub = sub.merge(_eps_df[_mcols + ["eps_hit_time"]], on=_mcols, how="left")
+    sub = sub.drop(columns=["_pk"])
+    return sub, "eps_hit_time"
+
+
+def plot_layer_comparison_grid(
+    summary_df: pd.DataFrame,
+    layers_list: Iterable[int],
+    presolve: bool,
+    traj_df: Optional[pd.DataFrame] = None,
+    eps_thresholds: tuple = (0.01, 0.001),
+    strategies: Optional[list[tuple[str, str]]] = None,
+    metric: str = "runtime_sec",
+    y_log: bool = True,
+) -> plt.Figure:
+    """Grid plot: rows = eps_thresholds, cols = penalty strategies (default oracle + LOO).
+
+    Produces a (len(eps_thresholds) × len(strategies)) panel grid with a shared
+    y-axis per row and strategy titles at the top.
+    """
+    if strategies is None:
+        strategies = _ORACLE_LOO_STRATEGIES
+
+    sub = summary_df[summary_df["presolve"] == bool(presolve)].copy()
+    if sub.empty:
+        raise ValueError(f"No summary data for presolve={presolve}")
+
+    layers_sorted = _sort_quantum_depths(layers_list)
+    baseline_rows = sub[sub["name"] == "baseline"].copy()
+    if baseline_rows.empty:
+        raise ValueError("No baseline rows found.")
+
+    baseline_opt = (
+        baseline_rows[["n", "seed", "presolve", "objective_baseline"]]
+        .drop_duplicates(subset=["n", "seed", "presolve"])
+        .rename(columns={"objective_baseline": "baseline_opt"})
+    )
+    total_seed_counts = baseline_opt.groupby("n")["seed"].nunique().to_dict()
+
+    baseline_seed_val = (
+        baseline_rows.groupby(["n", "seed"], as_index=False)["runtime_sec" if traj_df is None else "objective_baseline"]
+        .mean()
+    )
+
+    series_styles = {
+        1.0: {"color": "#42C6C6", "marker": "o"},
+        2.0: {"color": "#F08AA2", "marker": "o"},
+        3.0: {"color": "#F2C94C", "marker": "o"},
+        float("inf"): {"color": "#6C4AB6", "marker": "^"},
+    }
+    baseline_style = {"color": "#353B55", "marker": "s"}
+    fallback_cmap = plt.get_cmap("tab10")
+
+    n_rows = len(eps_thresholds)
+    n_cols = len(strategies)
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(7.1 * n_cols, 5.5 * n_rows),
+        sharey="row",
+        constrained_layout=True,
+    )
+    if n_rows == 1:
+        axes = axes[np.newaxis, :]
+    if n_cols == 1:
+        axes = axes[:, np.newaxis]
+
+    # column titles on top row only
+    for col, (_, title) in enumerate(strategies):
+        axes[0, col].set_title(title, fontsize=11, pad=8)
+
+    for row, eps_threshold in enumerate(eps_thresholds):
+        sub_eps, value_col = _compute_eps_hit_col(sub, baseline_opt, traj_df, eps_threshold)
+        baseline_rows_eps = sub_eps[sub_eps["name"] == "baseline"].copy()
+        pre_rows = sub_eps[sub_eps["name"] != "baseline"].copy()
+        pre_rows = pre_rows.merge(baseline_opt, on=["n", "seed", "presolve"], how="left")
+
+        baseline_seed_agg = (
+            baseline_rows_eps.groupby(["n", "seed"], as_index=False)[value_col]
+            .mean()
+            .sort_values(["n", "seed"])
+        )
+        baseline_grouped = (
+            baseline_seed_agg.groupby("n")[value_col]
+            .agg(["mean", "std", "count"])
+            .reset_index()
+            .sort_values("n")
+        )
+        baseline_grouped["sem"] = baseline_grouped["std"].fillna(0.0) / np.sqrt(baseline_grouped["count"])
+
+        base_order, base_scale, base_sigma = _fit_exponential_with_uncertainty(
+            baseline_grouped["n"], baseline_grouped["mean"], baseline_grouped["sem"]
+        )
+        if np.isfinite(base_order) and np.isfinite(base_sigma):
+            baseline_label = f"Original Gurobi - $O(({base_order:.2f}\\pm{base_sigma:.2f})^n)$"
+        elif np.isfinite(base_order):
+            baseline_label = f"Original Gurobi - $O({base_order:.2f}^n)$"
+        else:
+            baseline_label = "Original Gurobi"
+
+        y_label = f"Time to ε = {eps_threshold * 100:g}%-optimal (s)"
+
+        for col, (strategy, _) in enumerate(strategies):
+            ax = axes[row, col]
+
+            ax.errorbar(
+                baseline_grouped["n"], baseline_grouped["mean"], yerr=baseline_grouped["sem"],
+                fmt=baseline_style["marker"], linestyle="none", markersize=7.0,
+                capsize=4, capthick=1.2, elinewidth=1.2, markeredgewidth=1.1,
+                markeredgecolor=baseline_style["color"], ecolor=baseline_style["color"],
+                color=baseline_style["color"], label=baseline_label,
+            )
+            if np.isfinite(base_order) and np.isfinite(base_scale):
+                x_fit = np.linspace(float(baseline_grouped["n"].min()), float(baseline_grouped["n"].max()), 300)
+                ax.plot(x_fit, base_scale * (base_order ** x_fit),
+                        color=baseline_style["color"], linewidth=2.8, alpha=0.8, zorder=1)
+
+            chosen_pen_lines: list[str] = []
+            for idx, layer in enumerate(layers_sorted):
+                layer_rows = pre_rows[pre_rows["layers"] == layer].copy()
+                if layer_rows.empty:
+                    continue
+                seed_best = _apply_penalty_strategy(layer_rows, value_col, strategy)
+                if seed_best.empty:
+                    continue
+                if strategy == "fixed" and "_pen_r" in seed_best.columns:
+                    unique_pens = seed_best["_pen_r"].dropna().unique()
+                    if len(unique_pens) == 1:
+                        lbl = _format_quantum_depth_label(layer)
+                        chosen_pen_lines.append(f"p={lbl}: ρ={unique_pens[0]:.2g}")
+                best = (
+                    seed_best.groupby("n")[value_col]
+                    .agg(["mean", "std", "count"])
+                    .reset_index()
+                    .sort_values("n")
+                )
+                best["sem"] = best["std"].fillna(0.0) / np.sqrt(best["count"])
+                style = series_styles.get(float(layer), {"color": fallback_cmap(idx % fallback_cmap.N), "marker": "o"})
+                is_inf = float(layer) == float("inf")
+                layer_label = _format_quantum_depth_label(layer)
+                if not is_inf:
+                    fit_order, fit_scale, fit_sigma = _fit_exponential_with_uncertainty(
+                        best["n"], best["mean"], best["sem"]
+                    )
+                    if np.isfinite(fit_order) and np.isfinite(fit_sigma):
+                        label = f"p={layer_label} - $O(({fit_order:.2f}\\pm{fit_sigma:.2f})^n)$"
+                    elif np.isfinite(fit_order):
+                        label = f"p={layer_label} - $O({fit_order:.2f}^n)$"
+                    else:
+                        label = f"p={layer_label}"
+                else:
+                    fit_order = fit_scale = float("nan")
+                    label = f"p={layer_label}"
+                ax.errorbar(
+                    best["n"], best["mean"], yerr=best["sem"],
+                    fmt=style["marker"], linestyle="none", markersize=7.4,
+                    capsize=5, capthick=1.3, elinewidth=1.3, markeredgewidth=1.1,
+                    markeredgecolor=style["color"], ecolor=style["color"], color=style["color"],
+                    label=label,
+                )
+                if not is_inf and np.isfinite(fit_order) and np.isfinite(fit_scale):
+                    x_fit = np.linspace(float(best["n"].min()), float(best["n"].max()), 300)
+                    ax.plot(x_fit, fit_scale * (fit_order ** x_fit),
+                            color=style["color"], linewidth=2.6, alpha=0.75, zorder=1)
+
+            ax.set_xlabel("Number of variables $n$", fontsize=12)
+            if col == 0:
+                ax.set_ylabel(y_label, fontsize=12)
+            ax.grid(axis="x", visible=False)
+            ax.grid(axis="y", which="major", linestyle="--", linewidth=0.8, alpha=0.45)
+            for side in ["left", "bottom", "top", "right"]:
+                ax.spines[side].set_visible(True)
+                ax.spines[side].set_alpha(0.85)
+                ax.spines[side].set_linewidth(1.1)
+            ax.tick_params(axis="both", which="major", direction="in", top=True, right=True, length=7, width=1.1, labelsize=11)
+            ax.tick_params(axis="both", which="minor", direction="in", top=True, right=True, length=3.5, width=0.9)
+            handles, labels_leg = ax.get_legend_handles_labels()
+            ax.legend(handles, labels_leg, frameon=True, framealpha=0.88, edgecolor="#CCCCCC",
+                      fontsize=9, loc="upper left", handlelength=2.4, handletextpad=0.6)
+            if strategy == "fixed" and chosen_pen_lines:
+                ax.annotate(
+                    "Selected ρ:  " + ",   ".join(chosen_pen_lines),
+                    xy=(0.98, 0.03), xycoords="axes fraction",
+                    fontsize=8.5, ha="right", va="bottom", color="#555555",
+                )
+            if y_log:
+                ax.set_yscale("log")
+                ax.yaxis.set_major_locator(mticker.LogLocator(base=10))
+                ax.yaxis.set_minor_locator(mticker.LogLocator(base=10, subs=np.arange(2, 10) * 0.1))
+                ax.yaxis.set_minor_formatter(mticker.NullFormatter())
+
+    return fig
+
+
 def plot_family_param_comparison(
     summary_df: pd.DataFrame,
     family: str,
@@ -1742,6 +2024,7 @@ def plot_family_param_comparison(
     annotate_counts: bool = False,
     traj_df: Optional[pd.DataFrame] = None,
     eps_threshold: Optional[float] = None,
+    penalty_strategy: str = "oracle",
 ) -> plt.Figure:
     """Dispatch family scaling plots for quantum layers or classical sweeps."""
     if family == "quantum":
@@ -1755,6 +2038,7 @@ def plot_family_param_comparison(
             annotate_counts=annotate_counts,
             traj_df=traj_df,
             eps_threshold=eps_threshold,
+            penalty_strategy=penalty_strategy,
         )
     if family == "classical":
         return plot_sweep_comparison(
@@ -2126,7 +2410,7 @@ def plot_mipsol_ratio_minus_one(
     if "baseline" not in per_seed:
         raise RuntimeError("Baseline trajectory missing.")
 
-    presolve_text = "presolve on" if presolve else "presolve off"
+    presolve_text = "presolve enabled" if presolve else "presolve disabled"
     fig, ax = plt.subplots(figsize=(9.6, 5.8))
     variant_names = _sorted_variant_names(per_seed.keys(), include_baseline=True)
     _plt_palette = ["#353B55", "#42C6C6", "#F08AA2", "#F2C94C", "#6C4AB6",
@@ -2225,8 +2509,8 @@ def plot_mipsol_ratio_minus_one(
 
     ax.axhline(0.0, color="black", linestyle="--", linewidth=1.4, label="Baseline optimum")
     ax.set_xscale("log")
-    ax.set_xlabel("Incumbent discovery time (s)", fontsize=14)
-    ax.set_ylabel("Approx Ratio - 1", fontsize=14)
+    ax.set_xlabel("Incumbent discovery time (s)", fontsize=16)
+    ax.set_ylabel("Approx Ratio - 1", fontsize=16)
     title_setting = f"N={cfg.n}, p={_format_quantum_depth_label(cfg.layers)}" if cfg.family == "quantum" else f"N={cfg.n}, s={cfg.sweeps}"
     for side in ["left", "bottom", "top", "right"]:
         ax.spines[side].set_visible(True)
@@ -2237,12 +2521,13 @@ def plot_mipsol_ratio_minus_one(
     ax.xaxis.set_minor_formatter(mticker.NullFormatter())
     ax.grid(axis="x", visible=False)
     ax.grid(axis="y", which="major", linestyle="--", linewidth=0.8, alpha=0.45)
-    ax.tick_params(axis="both", which="major", direction="in", top=True, right=True, length=7, width=1.1, labelsize=12)
+    ax.tick_params(axis="both", which="major", direction="in", top=True, right=True, length=7, width=1.1, labelsize=14)
     ax.tick_params(axis="both", which="minor", direction="in", top=True, right=True, length=3.5, width=0.9)
     ax.legend(
-        fontsize=10,
-        ncol=2,
-        loc="upper right",
+        fontsize=13,
+        ncol=4,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.14),
         frameon=True,
         framealpha=0.88,
         edgecolor="#CCCCCC",
@@ -2284,7 +2569,7 @@ def plot_hit_time_vs_penalty(
     if len(eps) == 1:
         axes = [axes]
 
-    presolve_text = "presolve on" if presolve else "presolve off"
+    presolve_text = "presolve enabled" if presolve else "presolve disabled"
     outer_bar_color = "#9ECFD8"
     inner_bar_color = "#42C6C6"
     miss_color = "#A23B3B"
@@ -2403,7 +2688,7 @@ def plot_hit_time_vs_penalty(
 
         ax.set_title(rf"$\epsilon = {_format_epsilon_label(eps_value)}$", fontsize=round(15 * _fs))
         if ax is axes[0]:
-            ax.set_ylabel(r"$\epsilon$-hit time (s)", fontsize=round(14 * _fs))
+            ax.set_ylabel(r"Time to reach $\epsilon$-optimal threshold (s)", fontsize=round(14 * _fs))
         for side in ["left", "bottom", "top", "right"]:
             ax.spines[side].set_visible(True)
             ax.spines[side].set_alpha(0.85)
@@ -2442,6 +2727,175 @@ def plot_hit_time_vs_penalty(
             title_fontsize=round(10 * _fs),
         )
         fig.subplots_adjust(bottom=min(0.20 * _fs, 0.24))
+    return fig
+
+
+def plot_hit_time_lines(
+    hit_df: pd.DataFrame,
+    cfg: PlotConfig,
+    presolve: bool,
+    thresholds: Iterable[float] = (0.0, 0.01),
+    penalty_filter: Optional[Iterable[float]] = None,
+    y_log: bool = True,
+) -> plt.Figure:
+    """Line-plot analog of plot_hit_time_vs_penalty: one line per epsilon threshold,
+    both drawn on the same axes so eps=0 and eps=1% can be compared directly.
+    """
+    eps = [float(x) for x in thresholds]
+    if not eps:
+        raise ValueError("thresholds cannot be empty")
+
+    pfilter = _normalize_penalty_filter(penalty_filter)
+    sub = hit_df[hit_df["presolve"] == presolve].copy()
+    if sub.empty:
+        raise ValueError(f"No hit-time data for presolve={presolve}")
+
+    baseline_sub = sub[sub["is_baseline"]].copy()
+    variant_sub = sub[~sub["is_baseline"]].copy()
+    if pfilter is not None:
+        variant_sub = variant_sub[variant_sub["penalty_round"].round(3).isin(pfilter)].copy()
+
+    # "reached" = mean hit time over instances that crossed the threshold (bright).
+    # "PAR" = penalized average runtime over ALL instances, per eq:PAR (muted/lighter,
+    # matching the light-vs-bright outer/inner bar relationship in the bar-chart version).
+    eps_styles = {
+        0.0: {"reached": "#42C6C6", "par": "#9ECFD8", "marker": "o"},
+        0.01: {"reached": "#F08AA2", "par": "#F6C6D2", "marker": "s"},
+    }
+    miss_color = "#A23B3B"
+    fallback_cmap = plt.get_cmap("tab10")
+
+    fig, ax = plt.subplots(figsize=(7.1, 6.6))
+    any_miss_annotated = False
+
+    for idx, eps_value in enumerate(eps):
+        fallback_color = fallback_cmap(idx % fallback_cmap.N)
+        style = eps_styles.get(eps_value, {"reached": fallback_color, "par": fallback_color, "marker": "o"})
+        label = rf"$\epsilon = {_format_epsilon_label(eps_value)}$"
+
+        eps_variants = variant_sub[variant_sub["threshold"] == eps_value].copy()
+        if not eps_variants.empty:
+            grouped = _aggregate_hit_time_stats(eps_variants).sort_values("penalty_round")
+
+            ax.errorbar(
+                grouped["penalty_round"],
+                grouped["penalized_mean"],
+                yerr=grouped["sem_penalized"],
+                fmt=f"{style['marker']}--",
+                color=style["par"],
+                markersize=6.0,
+                capsize=4,
+                capthick=1.1,
+                elinewidth=1.1,
+                linewidth=1.8,
+                markeredgewidth=1.0,
+                markeredgecolor=style["par"],
+                ecolor=style["par"],
+                label=f"{label} (PAR)",
+                zorder=2,
+            )
+
+            for row in grouped.itertuples():
+                if row.miss_count > 0 and not np.isnan(row.penalized_mean):
+                    any_miss_annotated = True
+                    sem = float(row.sem_penalized) if not np.isnan(row.sem_penalized) else 0.0
+                    # Bare number: with a dense penalty grid (0.1 steps) the full
+                    # "(n never)" text collides between neighbors; a plain digit
+                    # or two is narrow enough to fit without overlapping.
+                    ax.annotate(
+                        str(int(row.miss_count)),
+                        (float(row.penalty_round), float(row.penalized_mean) + sem),
+                        xytext=(0, 6),
+                        textcoords="offset points",
+                        ha="center",
+                        va="bottom",
+                        fontsize=8,
+                        color=miss_color,
+                        clip_on=False,
+                    )
+
+            solved_mask = grouped["hit_count"] > 0
+            ax.errorbar(
+                grouped.loc[solved_mask, "penalty_round"],
+                grouped.loc[solved_mask, "mean_hit_time"],
+                yerr=grouped.loc[solved_mask, "sem_hit_time"],
+                fmt=f"{style['marker']}-",
+                color=style["reached"],
+                markersize=7.0,
+                capsize=4,
+                capthick=1.2,
+                elinewidth=1.2,
+                linewidth=2.3,
+                markeredgewidth=1.1,
+                markeredgecolor=style["reached"],
+                ecolor=style["reached"],
+                label=f"{label} (reached)",
+                zorder=3,
+            )
+
+        eps_baseline = baseline_sub[baseline_sub["threshold"] == eps_value]
+        bl_mean, bl_sem, bl_n = _mean_sem(eps_baseline["hit_time_sec"])
+        if bl_n > 0 and not np.isnan(bl_mean):
+            ax.axhline(
+                bl_mean,
+                color=style["reached"],
+                linestyle="--",
+                linewidth=1.6,
+                alpha=0.7,
+                label=f"Baseline ({label})",
+                zorder=2,
+            )
+            if bl_sem > 0:
+                ax.axhspan(bl_mean - bl_sem, bl_mean + bl_sem, color=style["reached"], alpha=0.10, zorder=1)
+
+    ax.set_xlabel(r"Penalty $\rho$", fontsize=14)
+    ax.set_ylabel(r"Time to reach $\epsilon$-optimal threshold (s)", fontsize=14)
+    for side in ["left", "bottom", "top", "right"]:
+        ax.spines[side].set_visible(True)
+        ax.spines[side].set_alpha(0.85)
+        ax.spines[side].set_linewidth(1.1)
+    ax.tick_params(axis="both", which="major", direction="in", top=True, right=True, length=7, width=1.1, labelsize=12)
+    ax.tick_params(axis="both", which="minor", direction="in", top=True, right=True, length=3.5, width=0.9)
+    ax.grid(axis="x", visible=False)
+    ax.grid(axis="y", which="major", linestyle="--", linewidth=0.8, alpha=0.45)
+    if y_log:
+        ax.set_yscale("log")
+        ax.yaxis.set_major_locator(mticker.LogLocator(base=10))
+        ax.yaxis.set_minor_locator(mticker.LogLocator(base=10, subs=np.arange(2, 10) * 0.1))
+        ax.yaxis.set_minor_formatter(mticker.NullFormatter())
+
+    if any_miss_annotated:
+        # Leave headroom above the highest point so "(n never)" annotations
+        # don't get clipped by the top axis spine.
+        y0, y1 = ax.get_ylim()
+        ax.set_ylim(y0, y1 * 1.5 if y_log else y1 + 0.10 * (y1 - y0))
+
+    handles, labels = ax.get_legend_handles_labels()
+    if any_miss_annotated:
+        miss_handle = plt.Line2D([0], [0], color=miss_color, linewidth=0, marker="s", markersize=8)
+        handles.append(miss_handle)
+        labels.append("Number of instances that never reached threshold")
+
+    # Below the axes, matching the bar-chart convention, rather than an inline
+    # legend that risks overlapping the data lines.
+    fig.legend(
+        handles,
+        labels,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.02),
+        ncol=3,
+        frameon=True,
+        framealpha=0.90,
+        edgecolor="#CCCCCC",
+        fontsize=9.5,
+        handlelength=2.4,
+        handletextpad=0.6,
+    )
+    fig.tight_layout()
+    # Grow the axes (not the gap) to close the space above the legend: a smaller
+    # reserved bottom fraction on this taller figure gives the plot itself more
+    # room while the legend still sits close to the bottom edge.
+    fig.subplots_adjust(bottom=0.20)
     return fig
 
 
@@ -2736,7 +3190,7 @@ def plot_performance_distribution(
     mean_h = plt.Line2D([0], [0], color="#1a1a2e", linewidth=3.0, label="Mean")
     leg_handles.append(mean_h)
 
-    presolve_label = "Presolve on" if presolve else "Presolve off"
+    presolve_label = "Presolve enabled" if presolve else "Presolve disabled"
     ax_main.legend(
         handles=leg_handles,
         handler_map=handler_map,

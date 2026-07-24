@@ -119,6 +119,8 @@ def main() -> int:
     ap.add_argument("--show-logs", action="store_true", help="Stream Gurobi log output to the console")
     ap.add_argument("--log-dir", type=Path, default=None, help="If set, write per-run Gurobi logs into this directory")
     ap.add_argument("--no-presolve", action="store_true", help="Disable Gurobi presolve (pure branch-and-bound)")
+    ap.add_argument("--pen-min", type=float, default=None, help="Only run penalties >= this value (inclusive)")
+    ap.add_argument("--pen-max", type=float, default=None, help="Only run penalties <= this value (inclusive)")
     ap.add_argument(
         "--out",
         type=Path,
@@ -192,6 +194,14 @@ def main() -> int:
             precond = _discover_preconditioned(precond_dir)
         except FileNotFoundError as e:
             print(f"[WARN] {e} (skipping seed={seed})")
+            continue
+
+        if args.pen_min is not None:
+            precond = [(p, f) for p, f in precond if p >= args.pen_min - 1e-9]
+        if args.pen_max is not None:
+            precond = [(p, f) for p, f in precond if p <= args.pen_max + 1e-9]
+        if not precond:
+            print(f"[WARN] No penalties in range after filtering (skipping seed={seed})")
             continue
 
         seed_log_dir = None
