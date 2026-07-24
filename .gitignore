@@ -22,3 +22,6 @@ venv/
 # Keep results CSVs, but ignore verbose solver logs (regenerable from --log-dir)
 logs/
 results/**/*.log
+
+# Regenerable via scripts/merge_penalty_results.py from results/ + results/pen1.1-2.0/
+results/merged/
