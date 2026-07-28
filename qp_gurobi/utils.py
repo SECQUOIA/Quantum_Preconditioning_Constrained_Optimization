@@ -1513,7 +1513,7 @@ def plot_layer_comparison_side_by_side_presolve(
     summary_df/traj_df should contain rows for BOTH presolve settings (e.g. the
     concatenation of the presolve-on and presolve-off comparison frames).
     """
-    fig, axes = plt.subplots(1, 2, figsize=(7.1 * 2, 5.5), sharey=True, constrained_layout=True)
+    fig, axes = plt.subplots(1, 2, figsize=(7.1 * 2, 5.5), sharey=False, constrained_layout=True)
     for col, (ax, presolve) in enumerate(zip(axes, [True, False])):
         try:
             plot_layer_comparison(
@@ -1531,8 +1531,18 @@ def plot_layer_comparison_side_by_side_presolve(
             )
         except ValueError as exc:
             ax.text(0.5, 0.5, str(exc), ha="center", va="center", transform=ax.transAxes, fontsize=9, color="#A23B3B", wrap=True)
-        if col > 0:
-            ax.set_ylabel("")
+
+    # Shared y-axis range: union of both panels' own auto-scaled ylim, applied
+    # to both, so enabled/disabled sit on the same scale instead of each panel
+    # scaling independently -- and since the range now matches, the right
+    # panel's y-axis label/tick labels would just be a duplicate.
+    ylims = [ax.get_ylim() for ax in axes]
+    y_min = min(lo for lo, hi in ylims)
+    y_max = max(hi for lo, hi in ylims)
+    for ax in axes:
+        ax.set_ylim(y_min, y_max)
+    axes[1].set_ylabel("")
+    axes[1].tick_params(axis="y", labelleft=False)
     return fig
 
 
@@ -1555,8 +1565,20 @@ def _apply_penalty_strategy(
     """Return one row per (n, seed) chosen by the given penalty strategy.
 
     strategy="oracle": retrospective best ρ per instance (upper bound).
-    strategy="fixed":  single ρ minimising mean metric across all (n, seed).
+    strategy="fixed":  one ρ held fixed across all (n, seed) for this depth -- the ρ
+                        (restricted to values tested at every N in scope) that minimises
+                        the mean metric per N, averaged across N (argmin of the average,
+                        not average of per-instance optima -- picking each instance's own
+                        best ρ and then averaging those ρ values instead can land on a
+                        value that's actually bad for everyone).
     strategy="loo":    cross-validated: for each seed, ρ chosen by mean over other seeds at same N.
+
+    Instances that never reach the threshold at a given ρ are excluded from that
+    ρ's mean/std/count rather than PAR-penalized (PAR made these strategies
+    wildly non-robust at small sample sizes -- a single penalized miss can
+    outweigh dozens of genuine hits). Callers that want visibility into how many
+    instances were excluded should annotate miss counts directly using
+    total_seed_counts.
     """
     all_rows = layer_rows.copy()
     all_rows["_pen_r"] = all_rows["penalty"].round(3)
@@ -1574,28 +1596,29 @@ def _apply_penalty_strategy(
         )
 
     if strategy == "fixed":
-        # Rank ρ by N-normalised hit rate: for each ρ, average the per-N hit fraction
-        # across ALL N values in the dataset, treating N values where ρ was not run as
-        # 0% hit rate.  This prevents a ρ that was only run at easy small N from winning
-        # just because it looks good on those few instances.
-        all_n = sorted(all_rows["n"].unique())
-        pen_avg_rate: dict[float, float] = {}
-        pen_mean_hit: dict[float, float] = {}
-        for p in all_rows["_pen_r"].unique():
-            rates = []
-            for n_val in all_n:
-                total_at_n = int((all_rows[(all_rows["n"] == n_val) & (all_rows["_pen_r"] == p)]).shape[0])
-                if total_at_n == 0:
-                    rates.append(0.0)
-                else:
-                    hits_at_n = int((valid[(valid["n"] == n_val) & (valid["_pen_r"] == p)]).shape[0])
-                    rates.append(hits_at_n / total_at_n)
-            pen_avg_rate[p] = float(np.mean(rates))
+        # Argmin of the average: score each candidate ρ directly by its own
+        # aggregate hit-time (mean value_col per N, then averaged across N so
+        # every N gets equal weight), and pick whichever ρ minimises that.
+        # Candidates are restricted to ρ tested at EVERY N in scope: without
+        # this, a ρ that only one or two N's happened to test could still win,
+        # which then collapses the resulting curve down to almost nothing once
+        # every other N gets filtered out below (an artifact of uneven per-N
+        # experiment grids, not a genuine best choice).
+        all_n_set = set(all_rows["n"].unique())
+        pen_n_coverage = all_rows.groupby("_pen_r")["n"].agg(lambda s: frozenset(s.unique()))
+        full_coverage_pens = sorted(p for p, ns in pen_n_coverage.items() if ns == all_n_set)
+        candidate_pens = full_coverage_pens or sorted(all_rows["_pen_r"].unique())
+
+        pen_scores = {}
+        for p in candidate_pens:
             pen_valid = valid[valid["_pen_r"] == p]
-            pen_mean_hit[p] = float(pen_valid[value_col].mean()) if not pen_valid.empty else float("inf")
-        score_df = pd.DataFrame({"avg_rate": pen_avg_rate, "mean_hit": pen_mean_hit})
-        score_df = score_df.sort_values(["avg_rate", "mean_hit"], ascending=[False, True])
-        best_pen = round(float(score_df.index[0]), 3)
+            if pen_valid.empty:
+                pen_scores[p] = float("inf")
+                continue
+            per_n_mean = pen_valid.groupby("n")[value_col].mean()
+            pen_scores[p] = float(per_n_mean.mean())
+        best_pen = min(candidate_pens, key=lambda p: pen_scores[p])
+
         fixed = valid[valid["_pen_r"] == best_pen].copy()
         return fixed.groupby(["n", "seed"], as_index=False).first()
 
@@ -1783,7 +1806,8 @@ def plot_layer_comparison_panel_strategies(
             style = series_styles.get(float(layer), {"color": fallback_cmap(idx % fallback_cmap.N), "marker": "o"})
             is_inf = float(layer) == float("inf")
             layer_label = _format_quantum_depth_label(layer)
-            if not is_inf:
+            show_fit = not is_inf
+            if show_fit:
                 fit_order, fit_scale, fit_sigma = _fit_exponential_with_uncertainty(
                     best["n"], best["mean"], best["sem"]
                 )
@@ -1803,7 +1827,7 @@ def plot_layer_comparison_panel_strategies(
                 markeredgecolor=style["color"], ecolor=style["color"], color=style["color"],
                 label=label,
             )
-            if not is_inf and np.isfinite(fit_order) and np.isfinite(fit_scale):
+            if show_fit and np.isfinite(fit_order) and np.isfinite(fit_scale):
                 x_fit = np.linspace(float(best["n"].min()), float(best["n"].max()), 300)
                 ax.plot(x_fit, fit_scale * (fit_order ** x_fit),
                         color=style["color"], linewidth=2.6, alpha=0.75, zorder=1)
@@ -2021,7 +2045,8 @@ def plot_layer_comparison_grid(
                 style = series_styles.get(float(layer), {"color": fallback_cmap(idx % fallback_cmap.N), "marker": "o"})
                 is_inf = float(layer) == float("inf")
                 layer_label = _format_quantum_depth_label(layer)
-                if not is_inf:
+                show_fit = not is_inf
+                if show_fit:
                     fit_order, fit_scale, fit_sigma = _fit_exponential_with_uncertainty(
                         best["n"], best["mean"], best["sem"]
                     )
@@ -2041,7 +2066,7 @@ def plot_layer_comparison_grid(
                     markeredgecolor=style["color"], ecolor=style["color"], color=style["color"],
                     label=label,
                 )
-                if not is_inf and np.isfinite(fit_order) and np.isfinite(fit_scale):
+                if show_fit and np.isfinite(fit_order) and np.isfinite(fit_scale):
                     x_fit = np.linspace(float(best["n"].min()), float(best["n"].max()), 300)
                     ax.plot(x_fit, fit_scale * (fit_order ** x_fit),
                             color=style["color"], linewidth=2.6, alpha=0.75, zorder=1)
@@ -2107,10 +2132,13 @@ def plot_layer_comparison_grid_by_presolve(
 
     n_rows = len(presolve_rows)
     n_cols = len(strategies)
+    # Independent y-axes throughout (not shared, not even within a row):
+    # presolve-disabled values can be meaningfully larger than enabled ones at
+    # the same N, so a shared scale would clip one row or squash the other.
     fig, axes = plt.subplots(
         n_rows, n_cols,
         figsize=(7.1 * n_cols, 5.5 * n_rows),
-        sharey="row",
+        sharey=False,
         constrained_layout=True,
     )
     if n_rows == 1:
@@ -2206,7 +2234,8 @@ def plot_layer_comparison_grid_by_presolve(
                 style = series_styles.get(float(layer), {"color": fallback_cmap(idx % fallback_cmap.N), "marker": "o"})
                 is_inf = float(layer) == float("inf")
                 layer_label = _format_quantum_depth_label(layer)
-                if not is_inf:
+                show_fit = not is_inf
+                if show_fit:
                     fit_order, fit_scale, fit_sigma = _fit_exponential_with_uncertainty(
                         best["n"], best["mean"], best["sem"]
                     )
@@ -2226,7 +2255,7 @@ def plot_layer_comparison_grid_by_presolve(
                     markeredgecolor=style["color"], ecolor=style["color"], color=style["color"],
                     label=label,
                 )
-                if not is_inf and np.isfinite(fit_order) and np.isfinite(fit_scale):
+                if show_fit and np.isfinite(fit_order) and np.isfinite(fit_scale):
                     x_fit = np.linspace(float(best["n"].min()), float(best["n"].max()), 300)
                     ax.plot(x_fit, fit_scale * (fit_order ** x_fit),
                             color=style["color"], linewidth=3.4, alpha=0.75, zorder=1)
@@ -2257,6 +2286,20 @@ def plot_layer_comparison_grid_by_presolve(
                 ax.yaxis.set_major_locator(mticker.LogLocator(base=10))
                 ax.yaxis.set_minor_locator(mticker.LogLocator(base=10, subs=np.arange(2, 10) * 0.1))
                 ax.yaxis.set_minor_formatter(mticker.NullFormatter())
+
+    # Match y-axis range across strategy columns within each presolve row
+    # (oracle and cross-validated share one scale per row) -- rows stay
+    # independent from each other since presolve enabled/disabled can differ
+    # in magnitude. Only the left column needs the label/tick numbers once
+    # the range is shared across the row.
+    for row in range(n_rows):
+        ylims = [axes[row, col].get_ylim() for col in range(n_cols)]
+        y_min = min(lo for lo, hi in ylims)
+        y_max = max(hi for lo, hi in ylims)
+        for col in range(n_cols):
+            axes[row, col].set_ylim(y_min, y_max)
+        for col in range(1, n_cols):
+            axes[row, col].tick_params(axis="y", labelleft=False)
 
     return fig
 
@@ -3121,8 +3164,7 @@ def plot_hit_time_lines(
         ax.annotate(
             "Presolve enabled" if presolve else "Presolve disabled",
             xy=(0.97, 0.03), xycoords="axes fraction",
-            ha="right", va="bottom", fontsize=15, color="#444444",
-            bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="#CCCCCC", alpha=0.85),
+            ha="right", va="bottom", fontsize=19, color="black",
             zorder=5,
         )
     for side in ["left", "bottom", "top", "right"]:
@@ -3141,7 +3183,11 @@ def plot_hit_time_lines(
 
     if any_miss_annotated:
         # Leave headroom above the highest point so "(n never)" annotations
-        # don't get clipped by the top axis spine.
+        # don't get clipped by the top axis spine. Each panel gets its own
+        # independent y-axis (not shared) precisely because presolve-disabled
+        # PAR values can be orders of magnitude larger than enabled ones (a
+        # miss is penalized by the much slower presolve-off baseline
+        # runtime), so per-panel headroom is correct here.
         y0, y1 = ax.get_ylim()
         ax.set_ylim(y0, y1 * 1.5 if y_log else y1 + 0.10 * (y1 - y0))
 
@@ -3187,7 +3233,7 @@ def plot_hit_time_lines_side_by_side_presolve(
     hit_df should contain rows for BOTH presolve settings (as returned by
     prepare_hit_time_metrics, which always computes both).
     """
-    fig, axes = plt.subplots(1, 2, figsize=(7.1 * 2, 6.6), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(7.1 * 2, 6.6), sharey=False)
     any_miss = bool((~hit_df.loc[~hit_df["is_baseline"], "hit_found"]).any())
 
     for col, (ax, presolve) in enumerate(zip(axes, [True, False])):
@@ -3203,8 +3249,20 @@ def plot_hit_time_lines_side_by_side_presolve(
             )
         except ValueError as exc:
             ax.text(0.5, 0.5, str(exc), ha="center", va="center", transform=ax.transAxes, fontsize=9, color="#A23B3B", wrap=True)
-        if col > 0:
-            ax.set_ylabel("")
+
+    # Shared y-axis range: union of whatever each panel's own headroom-adjusted
+    # ylim ended up being, applied to both, so enabled/disabled sit on the same
+    # scale instead of each panel auto-scaling independently.
+    ylims = [ax.get_ylim() for ax in axes]
+    y_min = min(lo for lo, hi in ylims)
+    y_max = max(hi for lo, hi in ylims)
+    for ax in axes:
+        ax.set_ylim(y_min, y_max)
+
+    # Ranges now match, so the right panel's y-axis label/tick labels are
+    # redundant -- only the left panel needs to show them.
+    axes[1].set_ylabel("")
+    axes[1].tick_params(axis="y", labelleft=False)
 
     handles, labels = axes[0].get_legend_handles_labels()
     if any_miss:
@@ -3220,7 +3278,7 @@ def plot_hit_time_lines_side_by_side_presolve(
     # Grow the axes (not the gap) to close the space above the legend: a taller
     # figure with a smaller reserved bottom fraction gives the plot itself more
     # room while the legend still sits close to the bottom edge.
-    fig.subplots_adjust(bottom=0.26, wspace=0.05)
+    fig.subplots_adjust(bottom=0.26, wspace=0.08)
     return fig
 
 

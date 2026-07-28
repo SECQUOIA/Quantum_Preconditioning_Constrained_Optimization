@@ -54,6 +54,9 @@ def _discover_preconditioned(layer_dir: Path) -> List[Tuple[float, Path]]:
         if not m:
             continue
         pen = float(m.group("pen"))
+        if not p.read_text().strip():
+            print(f"[WARN] Empty preconditioned file, skipping penalty={pen:.3f}: {p}")
+            continue
         items.append((pen, p))
     if not items:
         raise FileNotFoundError(f"No preconditioned_problem_pen=*.dat found under {layer_dir}")
