@@ -65,10 +65,11 @@ Fixed: `mip_gap=float(model.MIPGap) if feasible else None` — guarded by the sa
 Still a per-grid-point Python loop (`qp_gurobi/utils.py`, `_interpolate_step`).
 Fix remains: vectorize with a single `np.searchsorted(t_arr, t_grid, side='right') - 1` call.
 
-### 8. `utils.py` — `_filter_rows_reaching_original_optimum` row-wise JSON parsing `[OPEN]`
+### 8. `utils.py` — `_filter_rows_reaching_original_optimum` row-wise JSON parsing `[REMOVED]`
 
-Still dispatches per-row. Fix remains: vectorize via `explode`/`json_normalize` +
-NumPy threshold comparison.
+This function was dead code (defined but never called anywhere in the repo)
+and has been deleted as part of the 2026-07-28 dead-code cleanup. No longer
+applicable.
 
 ### 9. `scripts/run_experiment.py` — trajectory rows held fully in memory `[OPEN]`
 
@@ -88,10 +89,24 @@ remains: vectorize first-crossing computation per `(name, seed)` group.
 | Priority | Item | Impact |
 |---|---|---|
 | 1 | Perf #7 — vectorize `_interpolate_step` | Slow trajectory plots |
-| 2 | Perf #8 — vectorize row-wise JSON scan | Slow analysis functions |
-| 3 | Perf #10 — vectorize hit-time metrics loop | Slow `prepare_hit_time_metrics` |
-| 4 | Perf #9 — stream trajectory CSV output | High peak memory for large runs only |
+| 2 | Perf #10 — vectorize hit-time metrics loop | Slow `prepare_hit_time_metrics` |
+| 3 | Perf #9 — stream trajectory CSV output | High peak memory for large runs only |
 
-All correctness bugs (#1, #3–#6) are fixed; #2 was a false positive. Only
-performance optimizations remain open, and none are currently a practical
-bottleneck at the dataset sizes this repo runs (N ≤ 40, ≤50 seeds).
+All correctness bugs (#1, #3–#6) are fixed; #2 was a false positive; #8 was
+dead code and has been removed. Only performance optimizations remain open,
+and none are currently a practical bottleneck at the dataset sizes this repo
+runs (N ≤ 40, ≤50 seeds).
+
+## Dead code removed (2026-07-28)
+
+Also identified and deleted during the same pass — defined but never called
+anywhere in the repo (notebook, scripts, tests, or internally within
+`utils.py`):
+
+- `qp_gurobi/utils.py`: `load_layer_comparison_data`,
+  `_filter_rows_reaching_original_optimum`,
+  `plot_layer_comparison_panel_strategies`, `plot_layer_comparison_grid`,
+  and the now-orphaned `_PANEL_STRATEGIES` constant.
+- `notebooks/analysis.ipynb`: unused imports of the two removed plotting
+  functions above, plus `plot_hit_time_lines` (only its side-by-side wrapper,
+  `plot_hit_time_lines_side_by_side_presolve`, was ever called directly).
