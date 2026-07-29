@@ -2098,18 +2098,24 @@ def plot_hit_time_vs_penalty(
                     y_max = max(y_max, float(row.penalized_mean + row.sem_penalized))
 
             ax.set_xticks(x)
-            ax.set_xticklabels([f"ρ={pen:.2f}" for pen in grouped["penalty_round"]], rotation=0, ha="center")
+            ax.set_xticklabels(
+                [f"ρ={pen:.2f}" for pen in grouped["penalty_round"]],
+                rotation=45, ha="right", rotation_mode="anchor",
+            )
 
-            # red "(N never)" annotation below each tick in axes-fraction y coords
+            # Bare number, not "(n never)": with a dense penalty grid the full
+            # text collides between neighboring ticks. Placed inside each bar
+            # near its base instead of anywhere near the x-axis, sidestepping
+            # the tick-label collision question entirely.
             from matplotlib.transforms import blended_transform_factory
             trans = blended_transform_factory(ax.transData, ax.transAxes)
             for idx, row in enumerate(grouped.itertuples()):
                 if row.miss_count > 0:
                     ax.text(
-                        idx, -0.055, f"({int(row.miss_count)} never)",
-                        transform=trans, ha="center", va="top",
+                        idx, 0.03, str(int(row.miss_count)),
+                        transform=trans, ha="center", va="bottom",
                         color=miss_color, fontsize=round(12 * _fs),
-                        clip_on=False,
+                        fontweight="bold", zorder=6,
                     )
         else:
             grouped = pd.DataFrame()
@@ -2154,11 +2160,29 @@ def plot_hit_time_vs_penalty(
     fig.tight_layout(w_pad=1.1)
     if legend_handles:
         legend_labels_titled = legend_labels  # presolve goes in legend title
+
+        # Grow the figure (don't shrink the axes) to make room for the
+        # diagonal tick labels, the diagonal miss-count line below them, and
+        # the legend: keep the plot area's height in inches and the top
+        # margin's height in inches both fixed, and add all the extra height
+        # below the axes instead, then place the legend in that new room.
+        extra_height_in = 0.6
+        old_top = fig.subplotpars.top
+        old_bottom = fig.subplotpars.bottom
+        fig_w_in, fig_h_old = fig.get_size_inches()
+        fig_h_new = fig_h_old + extra_height_in
+        top_margin_in = (1.0 - old_top) * fig_h_old
+        axes_height_in = (old_top - old_bottom) * fig_h_old
+        new_top = 1.0 - top_margin_in / fig_h_new
+        new_bottom = new_top - axes_height_in / fig_h_new
+        fig.set_size_inches(fig_w_in, fig_h_new)
+        fig.subplots_adjust(top=new_top, bottom=new_bottom)
+
         fig.legend(
             legend_handles,
             legend_labels_titled,
             loc="lower center",
-            bbox_to_anchor=(0.5, -0.02),
+            bbox_to_anchor=(0.5, 0.0),
             ncol=3,
             frameon=True,
             framealpha=0.90,
@@ -2169,7 +2193,6 @@ def plot_hit_time_vs_penalty(
             title=presolve_text.capitalize(),
             title_fontsize=round(10 * _fs),
         )
-        fig.subplots_adjust(bottom=min(0.20 * _fs, 0.24))
     return fig
 
 
