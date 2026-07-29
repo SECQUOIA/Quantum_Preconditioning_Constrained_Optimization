@@ -110,3 +110,11 @@ anywhere in the repo (notebook, scripts, tests, or internally within
 - `notebooks/analysis.ipynb`: unused imports of the two removed plotting
   functions above, plus `plot_hit_time_lines` (only its side-by-side wrapper,
   `plot_hit_time_lines_side_by_side_presolve`, was ever called directly).
+
+A second pass removed the notebook's classical-preconditioner analysis
+sections entirely (out of scope for the accompanying manuscript, which only
+covers the quantum/QAOA preconditioner), which in turn orphaned:
+
+- `qp_gurobi/utils.py`: `plot_family_param_comparison`, `plot_sweep_comparison`,
+  `plot_quantum_vs_classical_comparison` (all zero external callers once the
+  classical/combined notebook cells were deleted).

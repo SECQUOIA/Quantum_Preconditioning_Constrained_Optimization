@@ -159,14 +159,17 @@ Open and run the notebook:
 - `notebooks/analysis.ipynb`
 
 It reads from `results/merged/` (rebuild via `merge_penalty_results.py` if
-you've added new data). Sections, in order: approximation ratio, PAR-based
-ε-hit bar charts, a combined ε=0/ε=1% PAR line plot (presolve enabled vs
-disabled, side by side, shared y-axis), a single-seed MIPSol trajectory plot,
-per-family (quantum/classical) scaling across problem sizes, a
-penalty-strategy comparison grid (Oracle upper-bound vs. cross-validated ρ
-selection, presolve enabled vs disabled), one combined quantum/classical
-scaling comparison, and a performance-distribution plot (final solution
-quality vs. the classical baseline, per QAOA depth).
+you've added new data). Covers the **quantum (QAOA) preconditioner family
+only** — the classical-sweep family isn't part of the accompanying
+manuscript and isn't analyzed here, though its CLI/data support still exists
+(`--preconditioner classical`, `results/N=*_classical_sweeps=*_*.csv`) for
+anyone who wants to extend the analysis. Sections, in order: approximation
+ratio, PAR-based ε-hit bar charts, a combined ε=0/ε=1% PAR line plot (presolve
+enabled vs disabled, side by side, shared y-axis), a single-seed MIPSol
+trajectory plot, scaling across problem sizes, a penalty-strategy comparison
+grid (Oracle upper-bound vs. cross-validated ρ selection, presolve enabled vs
+disabled), and a performance-distribution plot (final solution quality vs.
+the classical baseline, per QAOA depth).
 
 Penalty-selection strategies used in the scaling plots (`qp_gurobi.utils._apply_penalty_strategy`):
 - **`oracle`**: retrospective best ρ per instance (upper bound — requires hindsight).
