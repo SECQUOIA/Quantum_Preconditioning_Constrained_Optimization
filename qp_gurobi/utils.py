@@ -1948,8 +1948,8 @@ def plot_mipsol_ratio_minus_one(
 
         title_extra = f"seed={seed}"
 
-    ax.axhline(0.0, color="black", linestyle="--", linewidth=1.4, label="Baseline optimum")
     ax.set_xscale("log")
+    ax.set_yscale("log")
     ax.set_xlabel("Incumbent discovery time (s)", fontsize=16)
     ax.set_ylabel("Approx Ratio - 1", fontsize=16)
     title_setting = f"N={cfg.n}, p={_format_quantum_depth_label(cfg.layers)}" if cfg.family == "quantum" else f"N={cfg.n}, s={cfg.sweeps}"
@@ -1960,6 +1960,9 @@ def plot_mipsol_ratio_minus_one(
     ax.xaxis.set_major_locator(mticker.LogLocator(base=10))
     ax.xaxis.set_minor_locator(mticker.LogLocator(base=10, subs=np.arange(2, 10) * 0.1))
     ax.xaxis.set_minor_formatter(mticker.NullFormatter())
+    ax.yaxis.set_major_locator(mticker.LogLocator(base=10))
+    ax.yaxis.set_minor_locator(mticker.LogLocator(base=10, subs=np.arange(2, 10) * 0.1))
+    ax.yaxis.set_minor_formatter(mticker.NullFormatter())
     ax.grid(axis="x", visible=False)
     ax.grid(axis="y", which="major", linestyle="--", linewidth=0.8, alpha=0.45)
     ax.tick_params(axis="both", which="major", direction="in", top=True, right=True, length=7, width=1.1, labelsize=14)
@@ -2065,7 +2068,7 @@ def plot_hit_time_vs_penalty(
                 capsize=4,
                 capthick=1.2,
                 elinewidth=1.2,
-                color="black",
+                color="crimson",
                 zorder=3,
             )
             solved_mask = ~np.isnan(heights)
@@ -2087,7 +2090,7 @@ def plot_hit_time_vs_penalty(
                     capsize=4,
                     capthick=1.2,
                     elinewidth=1.2,
-                    color="black",
+                    color="crimson",
                     zorder=5,
                 )
 
