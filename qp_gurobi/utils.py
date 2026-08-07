@@ -2508,11 +2508,18 @@ def plot_performance_distribution(
         ends = _families.get(label, _fb_families[i % len(_fb_families)])
         cmap_i = LinearSegmentedColormap.from_list(f"d_{i}", [ends[0], ends[1]])
 
-        for n_val, grp in pre.groupby("n"):
-            if "penalty" in grp.columns and grp["penalty"].notna().any():
-                sub = grp.loc[grp.groupby("seed")["perf"].idxmax()]
-            else:
-                sub = grp
+        # Use the same fixed-ρ-per-depth selection as the scaling plots (one ρ
+        # held fixed across every N/seed for this label), not a per-instance
+        # oracle pick -- an oracle pick here would overstate quality relative
+        # to what the scaling plots report for the same depth.
+        if "penalty" in pre.columns and pre["penalty"].notna().any():
+            pre["_gap"] = 100.0 - pre["perf"]
+            fixed_pre = _apply_penalty_strategy(pre, "_gap", "fixed")
+        else:
+            fixed_pre = pre
+
+        for n_val, grp in fixed_pre.groupby("n"):
+            sub = grp
             perfs = sub["perf"].to_numpy()
 
             # histogram-based local density in perf space, normalised to [0, 1]

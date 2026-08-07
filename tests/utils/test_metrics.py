@@ -269,6 +269,39 @@ class TestPlotPerformanceDistribution:
         assert len(offsets) == 1
         assert offsets[0][0, 1] == pytest.approx(2.0)
 
+    def test__plot_performance_distribution__given_multiple_seeds__uses_fixed_penalty_not_per_seed_oracle(self):
+        # A single seed can't distinguish "oracle per instance" from "fixed
+        # per depth" (both degenerate to the same pick). With two seeds whose
+        # individual best penalties disagree, the fixed strategy must hold one
+        # penalty fixed across both -- picking the penalty with the best
+        # *average* gap (0.2, avg gap 2.25) over the oracle-per-seed pick
+        # (which would use 0.1 for seed 0 and 0.3 for seed 1, both gap 1.0).
+        df = pd.DataFrame(
+            [
+                {"name": "baseline", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -10.0, "penalty": None},
+                {"name": "baseline", "n": 8, "seed": 1, "presolve": True, "objective_baseline": -10.0, "penalty": None},
+                {"name": "precond_pen=0.100", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -9.9, "penalty": 0.1},
+                {"name": "precond_pen=0.200", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -9.8, "penalty": 0.2},
+                {"name": "precond_pen=0.300", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -9.0, "penalty": 0.3},
+                {"name": "precond_pen=0.100", "n": 8, "seed": 1, "presolve": True, "objective_baseline": -9.1, "penalty": 0.1},
+                {"name": "precond_pen=0.200", "n": 8, "seed": 1, "presolve": True, "objective_baseline": -9.75, "penalty": 0.2},
+                {"name": "precond_pen=0.300", "n": 8, "seed": 1, "presolve": True, "objective_baseline": -9.9, "penalty": 0.3},
+            ]
+        )
+
+        # ACT
+        fig = plot_performance_distribution({"p=1": df}, presolve=True, reference_lines=[])
+
+        # ASSERT
+        offsets = [
+            collection.get_offsets()
+            for collection in fig.axes[1].collections
+            if len(collection.get_offsets())
+        ]
+        assert len(offsets) == 1
+        gaps = sorted(offsets[0][:, 1])
+        assert gaps == pytest.approx([2.0, 2.5])
+
 
 # ---------------------------------------------------------------------------
 # plot_hit_time_vs_penalty
