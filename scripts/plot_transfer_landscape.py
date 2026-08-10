@@ -34,6 +34,14 @@ Usage:
     python plot_transfer_landscape.py --data-root /path/to/complete_random \\
         --seed 0 --penalty 1.5 --layer 3 --n-values 20,24,28 \\
         --vary-layer 1 --resolution 41 -j 8
+
+External dependency: this script imports the `quantum_preconditioning`
+package (QAOA state-vector tooling from the companion instance-generation
+codebase, which also provides the `seed_transfer.py` and
+`generate_high_penalties.py` scripts referenced above). That package is NOT
+part of this repo or its documented environment — run this script in an
+environment where `quantum_preconditioning` is importable (e.g. the cluster
+environment used for instance generation).
 """
 from __future__ import annotations
 
