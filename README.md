@@ -43,7 +43,8 @@ scripts/
   run_experiment.py      CLI runner: solve baseline + preconditioned instances, write summary/trajectory CSVs
   merge_penalty_results.py  Merge a penalty-restricted cluster batch (e.g. results/pen1.1-2.0/) into results/merged/
   verify_results.py       Sanity-check a results CSV: recompute baseline objective from stored bitstrings, check bisection constraint
-  plot_transfer_landscape.py  QAOA parameter-transfer landscape validation (see its own docstring for usage/details)
+  plot_transfer_landscape.py  QAOA parameter-transfer landscape validation (requires the external
+                              quantum_preconditioning package -- see its docstring for usage/details)
 
 notebooks/
   analysis.ipynb          All analysis figures (see "Analyze" below)
@@ -186,8 +187,9 @@ N=8 is excluded from the quantum scaling plots: at that size, the
 preconditioned instance's time-to-1%-optimal is anomalously large relative to
 N=12 (a real effect, verified against raw Gurobi `runtime_sec`, not a
 plotting bug or hardware artifact — see git history for the investigation).
-p=3's exponential fit is also omitted from the "fixed"-strategy scaling plot
-only 5 problem sizes of data make its fitted exponent statistically unstable.
+p=2 and p=3 were only run up to N=28, so their exponential fits rest on just
+5 problem sizes and carry more uncertainty than the p=1 fit — the ±σ on the
+fitted base shown in each legend label quantifies this.
 
 ## Testing
 
