@@ -214,3 +214,16 @@ default.
 See `BUGS_AND_OPTIMIZATIONS.md` for the status of previously-identified
 correctness bugs (all fixed) and open performance-optimization opportunities
 (none currently a practical bottleneck at this repo's dataset sizes).
+
+## References
+
+The QAOA correlation-matrix preconditioning approach this repo builds on:
+
+- M. Dupont, T. Oberoi, and B. Sundar, "Optimization via quantum
+  preconditioning," Phys. Rev. Applied **24**, 044013 (2025).
+  DOI: [10.1103/9prw-684p](https://doi.org/10.1103/9prw-684p)
+- M. Dupont, B. Sundar, B. Evert, D. E. Bernal Neira, Z. Peng, S. Jeffrey,
+  and M. J. Hodson, "Benchmarking quantum optimization for the maximum-cut
+  problem on a superconducting quantum computer," Phys. Rev. Applied **23**,
+  014045 (2025). DOI:
+  [10.1103/PhysRevApplied.23.014045](https://doi.org/10.1103/PhysRevApplied.23.014045)
