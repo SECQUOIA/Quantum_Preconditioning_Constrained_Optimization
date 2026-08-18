@@ -1549,8 +1549,8 @@ def _apply_penalty_strategy(
 
 
 _ORACLE_LOO_STRATEGIES: list[tuple[str, str]] = [
-    ("oracle", "Oracle\n(best ρ per instance — upper bound)"),
-    ("loo",    "Cross-validated ρ\n(held-out seeds within each N)"),
+    ("fixed", "Global ρ\n(fixed per depth, chosen across all N)"),
+    ("loo",   "Cross-validated ρ\n(held-out seeds within each N)"),
 ]
 
 
@@ -1699,7 +1699,6 @@ def plot_layer_comparison_grid_by_presolve(
                 ax.plot(x_fit, base_scale * (base_order ** x_fit),
                         color=baseline_style["color"], linewidth=3.6, alpha=0.8, zorder=1)
 
-            chosen_pen_lines: list[str] = []
             for idx, layer in enumerate(layers_sorted):
                 layer_rows = pre_rows[pre_rows["layers"] == layer].copy()
                 if layer_rows.empty:
@@ -1707,11 +1706,6 @@ def plot_layer_comparison_grid_by_presolve(
                 seed_best = _apply_penalty_strategy(layer_rows, value_col, strategy)
                 if seed_best.empty:
                     continue
-                if strategy == "fixed" and "_pen_r" in seed_best.columns:
-                    unique_pens = seed_best["_pen_r"].dropna().unique()
-                    if len(unique_pens) == 1:
-                        lbl = _format_quantum_depth_label(layer)
-                        chosen_pen_lines.append(f"p={lbl}: ρ={unique_pens[0]:.2g}")
                 best = (
                     seed_best.groupby("n")[value_col]
                     .agg(["mean", "std", "count"])
@@ -1763,12 +1757,6 @@ def plot_layer_comparison_grid_by_presolve(
             ax.legend(handles, labels_leg, frameon=False,
                       fontsize=14, loc="upper left", handlelength=2.4, handletextpad=0.6,
                       title=presolve_label, title_fontsize=14)
-            if strategy == "fixed" and chosen_pen_lines:
-                ax.annotate(
-                    "Selected ρ:  " + ",   ".join(chosen_pen_lines),
-                    xy=(0.98, 0.03), xycoords="axes fraction",
-                    fontsize=12, ha="right", va="bottom", color="#555555",
-                )
             if y_log:
                 ax.set_yscale("log")
                 ax.yaxis.set_major_locator(mticker.LogLocator(base=10))
@@ -2454,6 +2442,7 @@ def plot_performance_distribution(
     summary_dfs: Dict[str, pd.DataFrame],
     presolve: bool = True,
     reference_lines: Optional[List[float]] = None,
+    strategy: str = "fixed",
 ) -> plt.Figure:
     """Fig-1b analog: performance distribution across seeds per N, density-coloured.
 
@@ -2461,6 +2450,11 @@ def plot_performance_distribution(
     normalized by ``abs(baseline objective)``.
     Top strip shows instances at exactly 100% with fraction labels; main panel
     shows suboptimal instances on a log-scale complement axis (gap = 100 − perf%).
+
+    ``strategy`` selects the penalty-selection rule passed to
+    ``_apply_penalty_strategy`` ("fixed", "oracle", or "loo"). Defaults to
+    "fixed" for consistency with the scaling plots; pass "oracle" for the
+    per-instance retrospective-best upper bound instead.
     """
     from matplotlib.colors import LinearSegmentedColormap, Normalize
     from matplotlib.cm import ScalarMappable
@@ -2508,13 +2502,12 @@ def plot_performance_distribution(
         ends = _families.get(label, _fb_families[i % len(_fb_families)])
         cmap_i = LinearSegmentedColormap.from_list(f"d_{i}", [ends[0], ends[1]])
 
-        # Use the same fixed-ρ-per-depth selection as the scaling plots (one ρ
-        # held fixed across every N/seed for this label), not a per-instance
-        # oracle pick -- an oracle pick here would overstate quality relative
-        # to what the scaling plots report for the same depth.
+        # Default ("fixed") mirrors the scaling plots' one-ρ-per-depth
+        # selection; an oracle pick would otherwise overstate quality
+        # relative to what the scaling plots report for the same depth.
         if "penalty" in pre.columns and pre["penalty"].notna().any():
             pre["_gap"] = 100.0 - pre["perf"]
-            fixed_pre = _apply_penalty_strategy(pre, "_gap", "fixed")
+            fixed_pre = _apply_penalty_strategy(pre, "_gap", strategy)
         else:
             fixed_pre = pre
 
