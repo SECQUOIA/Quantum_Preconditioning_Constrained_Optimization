@@ -17,6 +17,7 @@ import pytest
 from qp_gurobi.utils import (
     PlotConfig,
     _aggregate_hit_time_stats,
+    compute_fixed_rho_by_depth,
     plot_hit_time_vs_penalty,
     plot_performance_distribution,
     prepare_hit_time_metrics,
@@ -325,6 +326,73 @@ class TestPlotPerformanceDistribution:
         assert len(offsets) == 1
         gaps = sorted(offsets[0][:, 1])
         assert gaps == pytest.approx([1.0, 1.0])
+
+    def test__plot_performance_distribution__given_fixed_rho_by_label__overrides_internal_selection(self):
+        # The internal "fixed" strategy selects rho against quality gap and
+        # would pick 0.2 here (see the sibling test above). A caller wanting
+        # this plot to report quality under the scaling grid's own Global-rho
+        # choice (selected against hit-time, a different quantity) needs an
+        # explicit override, since the two selections are not guaranteed to
+        # agree and silently falling back to the internal pick would
+        # reintroduce the exact cross-figure mismatch this parameter fixes.
+        df = _make_disagreeing_penalty_df()
+
+        # ACT: force rho=0.3, which the quality-based "fixed" strategy would
+        # not have chosen on its own.
+        fig = plot_performance_distribution(
+            {"p=1": df}, presolve=True, reference_lines=[],
+            fixed_rho_by_label={"p=1": 0.3},
+        )
+
+        # ASSERT
+        offsets = [
+            collection.get_offsets()
+            for collection in fig.axes[1].collections
+            if len(collection.get_offsets())
+        ]
+        assert len(offsets) == 1
+        gaps = sorted(offsets[0][:, 1])
+        assert gaps == pytest.approx([1.0, 10.0])
+
+    def test__plot_performance_distribution__given_fixed_rho_by_label_missing_a_label__raises(self):
+        df = _make_disagreeing_penalty_df()
+
+        with pytest.raises(KeyError):
+            plot_performance_distribution(
+                {"p=1": df}, presolve=True, reference_lines=[],
+                fixed_rho_by_label={"p=2": 0.3},
+            )
+
+
+# ---------------------------------------------------------------------------
+# compute_fixed_rho_by_depth
+# ---------------------------------------------------------------------------
+
+class TestComputeFixedRhoByDepth:
+    def test__compute_fixed_rho_by_depth__matches_grid_selected_rho(self):
+        # ARRANGE: the hit-time fixture already carries a "layers" column,
+        # so it doubles as a minimal stand-in for the scaling grid's own
+        # summary_df/traj_df.
+        summary_df, traj_by_presolve, _cfg = _make_hit_df_fixture(
+            n_seeds=2, n_hitting=2, base_opt=10.0, eps=0.01, hit_times=[0.2, 0.5],
+        )
+        # The fixture's trajectory rows omit "n" (fine for prepare_hit_time_metrics,
+        # which is always called for one fixed size), but _compute_eps_hit_col
+        # groups across "n" too, so add it here to match summary_df.
+        traj_df = traj_by_presolve[True].copy()
+        traj_df["n"] = 8
+
+        # ACT
+        result = compute_fixed_rho_by_depth(
+            summary_df=summary_df,
+            traj_df=traj_df,
+            layers_list=[1],
+            presolve=True,
+            eps_threshold=0.01,
+        )
+
+        # ASSERT: a single tested penalty degenerates to itself being picked.
+        assert result == pytest.approx({1.0: 0.3})
 
 
 # ---------------------------------------------------------------------------

@@ -1589,6 +1589,50 @@ def _compute_eps_hit_col(
     return sub, "eps_hit_time"
 
 
+def compute_fixed_rho_by_depth(
+    summary_df: pd.DataFrame,
+    traj_df: pd.DataFrame,
+    layers_list: Iterable[int],
+    presolve: bool,
+    eps_threshold: float = 0.01,
+) -> Dict[float, float]:
+    """Return the Global-ρ (hit-time-minimizing) selection per depth.
+
+    Mirrors exactly the ρ choice ``plot_layer_comparison_grid_by_presolve``
+    uses for its Global-ρ column (the "fixed" strategy applied to
+    ``eps_hit_time``), keyed by depth so callers, e.g.
+    ``plot_performance_distribution`` via ``fixed_rho_by_label``, can reuse
+    the same per-depth ρ instead of independently re-selecting one against a
+    different quantity (final solution quality).
+    """
+    sub = summary_df[summary_df["presolve"] == bool(presolve)].copy()
+    baseline_rows = sub[sub["name"] == "baseline"].copy()
+    if baseline_rows.empty:
+        return {}
+    baseline_opt = (
+        baseline_rows[["n", "seed", "presolve", "objective_baseline"]]
+        .drop_duplicates(subset=["n", "seed", "presolve"])
+        .rename(columns={"objective_baseline": "baseline_opt"})
+    )
+    traj_sub = traj_df[traj_df["presolve"] == bool(presolve)].copy()
+    sub_eps, value_col = _compute_eps_hit_col(sub, baseline_opt, traj_sub, eps_threshold)
+    pre_rows = sub_eps[sub_eps["name"] != "baseline"].copy()
+    pre_rows = pre_rows.merge(baseline_opt, on=["n", "seed", "presolve"], how="left")
+
+    rho_by_depth: Dict[float, float] = {}
+    for layer in layers_list:
+        layer_rows = pre_rows[pre_rows["layers"] == layer].copy()
+        if layer_rows.empty:
+            continue
+        seed_best = _apply_penalty_strategy(layer_rows, value_col, "fixed")
+        if seed_best.empty or "_pen_r" not in seed_best.columns:
+            continue
+        unique_pens = seed_best["_pen_r"].dropna().unique()
+        if len(unique_pens) == 1:
+            rho_by_depth[float(layer)] = float(unique_pens[0])
+    return rho_by_depth
+
+
 def plot_layer_comparison_grid_by_presolve(
     summary_df: pd.DataFrame,
     layers_list: Iterable[int],
@@ -2443,6 +2487,7 @@ def plot_performance_distribution(
     presolve: bool = True,
     reference_lines: Optional[List[float]] = None,
     strategy: str = "fixed",
+    fixed_rho_by_label: Optional[Dict[str, float]] = None,
 ) -> plt.Figure:
     """Fig-1b analog: performance distribution across seeds per N, density-coloured.
 
@@ -2455,6 +2500,15 @@ def plot_performance_distribution(
     ``_apply_penalty_strategy`` ("fixed", "oracle", or "loo"). Defaults to
     "fixed" for consistency with the scaling plots; pass "oracle" for the
     per-instance retrospective-best upper bound instead.
+
+    By default, the "fixed" strategy independently selects, per label, the ρ
+    that minimizes mean *final-quality degradation* — a different quantity
+    from the Global-ρ column of the scaling grid, which selects ρ to
+    minimize mean *hit-time*. These two selections need not agree. Pass
+    ``fixed_rho_by_label`` (e.g. from ``compute_fixed_rho_by_depth``) to
+    override the per-label ρ with an externally supplied value instead, so
+    this plot reports quality under the *same* ρ the scaling grid used,
+    rather than re-deriving its own. Ignored unless ``strategy == "fixed"``.
     """
     from matplotlib.colors import LinearSegmentedColormap, Normalize
     from matplotlib.cm import ScalarMappable
@@ -2505,7 +2559,14 @@ def plot_performance_distribution(
         # Default ("fixed") mirrors the scaling plots' one-ρ-per-depth
         # selection; an oracle pick would otherwise overstate quality
         # relative to what the scaling plots report for the same depth.
-        if "penalty" in pre.columns and pre["penalty"].notna().any():
+        if fixed_rho_by_label is not None and strategy == "fixed":
+            if label not in fixed_rho_by_label:
+                raise KeyError(
+                    f"fixed_rho_by_label is missing an entry for label {label!r}"
+                )
+            _pen_r = round(float(fixed_rho_by_label[label]), 3)
+            fixed_pre = pre[pre["penalty"].round(3) == _pen_r].copy()
+        elif "penalty" in pre.columns and pre["penalty"].notna().any():
             pre["_gap"] = 100.0 - pre["perf"]
             fixed_pre = _apply_penalty_strategy(pre, "_gap", strategy)
         else:
