@@ -99,6 +99,22 @@ def _make_hit_df_fixture(
     return summary_df, {True: traj_df}, cfg
 
 
+def _make_disagreeing_penalty_df() -> pd.DataFrame:
+    """Build two seeds whose individually best penalties disagree."""
+    return pd.DataFrame(
+        [
+            {"name": "baseline", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -10.0, "penalty": None},
+            {"name": "baseline", "n": 8, "seed": 1, "presolve": True, "objective_baseline": -10.0, "penalty": None},
+            {"name": "precond_pen=0.100", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -9.9, "penalty": 0.1},
+            {"name": "precond_pen=0.200", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -9.8, "penalty": 0.2},
+            {"name": "precond_pen=0.300", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -9.0, "penalty": 0.3},
+            {"name": "precond_pen=0.100", "n": 8, "seed": 1, "presolve": True, "objective_baseline": -9.1, "penalty": 0.1},
+            {"name": "precond_pen=0.200", "n": 8, "seed": 1, "presolve": True, "objective_baseline": -9.75, "penalty": 0.2},
+            {"name": "precond_pen=0.300", "n": 8, "seed": 1, "presolve": True, "objective_baseline": -9.9, "penalty": 0.3},
+        ]
+    )
+
+
 # ---------------------------------------------------------------------------
 # Bug #3 — prepare_penalty_metrics cross-join (CONFIRMED BUG)
 # ---------------------------------------------------------------------------
@@ -276,18 +292,7 @@ class TestPlotPerformanceDistribution:
         # penalty fixed across both -- picking the penalty with the best
         # *average* gap (0.2, avg gap 2.25) over the oracle-per-seed pick
         # (which would use 0.1 for seed 0 and 0.3 for seed 1, both gap 1.0).
-        df = pd.DataFrame(
-            [
-                {"name": "baseline", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -10.0, "penalty": None},
-                {"name": "baseline", "n": 8, "seed": 1, "presolve": True, "objective_baseline": -10.0, "penalty": None},
-                {"name": "precond_pen=0.100", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -9.9, "penalty": 0.1},
-                {"name": "precond_pen=0.200", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -9.8, "penalty": 0.2},
-                {"name": "precond_pen=0.300", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -9.0, "penalty": 0.3},
-                {"name": "precond_pen=0.100", "n": 8, "seed": 1, "presolve": True, "objective_baseline": -9.1, "penalty": 0.1},
-                {"name": "precond_pen=0.200", "n": 8, "seed": 1, "presolve": True, "objective_baseline": -9.75, "penalty": 0.2},
-                {"name": "precond_pen=0.300", "n": 8, "seed": 1, "presolve": True, "objective_baseline": -9.9, "penalty": 0.3},
-            ]
-        )
+        df = _make_disagreeing_penalty_df()
 
         # ACT
         fig = plot_performance_distribution({"p=1": df}, presolve=True, reference_lines=[])
@@ -301,6 +306,25 @@ class TestPlotPerformanceDistribution:
         assert len(offsets) == 1
         gaps = sorted(offsets[0][:, 1])
         assert gaps == pytest.approx([2.0, 2.5])
+
+    def test__plot_performance_distribution__given_oracle_strategy__uses_best_penalty_per_seed(self):
+        # ARRANGE
+        df = _make_disagreeing_penalty_df()
+
+        # ACT
+        fig = plot_performance_distribution(
+            {"p=1": df}, presolve=True, reference_lines=[], strategy="oracle"
+        )
+
+        # ASSERT
+        offsets = [
+            collection.get_offsets()
+            for collection in fig.axes[1].collections
+            if len(collection.get_offsets())
+        ]
+        assert len(offsets) == 1
+        gaps = sorted(offsets[0][:, 1])
+        assert gaps == pytest.approx([1.0, 1.0])
 
 
 # ---------------------------------------------------------------------------
