@@ -30,6 +30,11 @@ classical sweep count s), and with Gurobi presolve on and off.
   (`grbgetkey <key>`; academic keys require the machine to be on an
   academic-recognized network at the time you run it)
 - For the notebook: `pandas`, `matplotlib`, `jupyter`
+- For `scripts/plot_transfer_landscape.py` only: the internal, unversioned
+  `quantum_preconditioning` package used to generate the source instances.
+  Its source URL and tested revision were not recorded with this dataset, so
+  that landscape is not reproducible from this repository alone; see the
+  script docstring for the exact imports and provenance limitation.
 
 ## Repo layout
 
@@ -43,8 +48,8 @@ scripts/
   run_experiment.py      CLI runner: solve baseline + preconditioned instances, write summary/trajectory CSVs
   merge_penalty_results.py  Merge a penalty-restricted cluster batch (e.g. results/pen1.1-2.0/) into results/merged/
   verify_results.py       Sanity-check a results CSV: recompute baseline objective from stored bitstrings, check bisection constraint
-  plot_transfer_landscape.py  QAOA parameter-transfer landscape validation (requires the external
-                              quantum_preconditioning package -- see its docstring for usage/details)
+  plot_transfer_landscape.py  QAOA parameter-transfer landscape validation (requires the internal,
+                              unversioned quantum_preconditioning package; see its docstring)
 
 notebooks/
   analysis.ipynb          All analysis figures (see "Analyze" below)
@@ -170,7 +175,7 @@ anyone who wants to extend the analysis. Sections, in order: approximation
 ratio, PAR-based ε-hit bar charts, a combined ε=0/ε=1% PAR line plot (presolve
 enabled vs disabled, side by side, shared y-axis), a single-seed MIPSol
 trajectory plot, scaling across problem sizes, a penalty-strategy comparison
-grid (Oracle upper-bound vs. cross-validated ρ selection, presolve enabled vs
+grid (global fixed-ρ vs. cross-validated ρ selection, presolve enabled vs.
 disabled), and a performance-distribution plot (final solution quality vs.
 the classical baseline, per QAOA depth).
 

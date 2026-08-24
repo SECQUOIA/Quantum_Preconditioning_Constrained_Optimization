@@ -35,13 +35,18 @@ Usage:
         --seed 0 --penalty 1.5 --layer 3 --n-values 20,24,28 \\
         --vary-layer 1 --resolution 41 -j 8
 
-External dependency: this script imports the `quantum_preconditioning`
-package (QAOA state-vector tooling from the companion instance-generation
-codebase, which also provides the `seed_transfer.py` and
-`generate_high_penalties.py` scripts referenced above). That package is NOT
-part of this repo or its documented environment — run this script in an
-environment where `quantum_preconditioning` is importable (e.g. the cluster
-environment used for instance generation).
+External dependency: this script imports the internal
+`quantum_preconditioning` package (QAOA state-vector tooling from the
+companion instance-generation codebase, which also provides the
+`seed_transfer.py` and `generate_high_penalties.py` scripts referenced
+above). It is not part of this repository or its documented environment.
+
+Provenance limitation: neither a source-repository URL, an installable
+release, nor the exact tested Git revision for that package was recorded with
+this dataset. Consequently, the landscape cannot be independently regenerated
+from this repository alone. Run it only with the original internal checkout
+paired with `complete_random`, verify that the imports below resolve, and
+record that checkout's Git revision with any newly generated landscape.
 """
 from __future__ import annotations
 
