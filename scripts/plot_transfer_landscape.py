@@ -35,18 +35,16 @@ Usage:
         --seed 0 --penalty 1.5 --layer 3 --n-values 20,24,28 \\
         --vary-layer 1 --resolution 41 -j 8
 
-External dependency: this script imports the internal
-`quantum_preconditioning` package (QAOA state-vector tooling from the
-companion instance-generation codebase, which also provides the
-`seed_transfer.py` and `generate_high_penalties.py` scripts referenced
-above). It is not part of this repository or its documented environment.
-
-Provenance limitation: neither a source-repository URL, an installable
-release, nor the exact tested Git revision for that package was recorded with
-this dataset. Consequently, the landscape cannot be independently regenerated
-from this repository alone. Run it only with the original internal checkout
-paired with `complete_random`, verify that the imports below resolve, and
-record that checkout's Git revision with any newly generated landscape.
+External dependency: this script imports the internal, proprietary
+`quantum_preconditioning` package (Rigetti's QAOA state-vector tooling), but
+only for recomputing a landscape from scratch (--recompute, or a cache miss).
+Source: https://github.com/anurag-r20/Quantum_Preconditioning_Rigetti,
+commit 211426d23680b0a2b3e782c982699718c04aa68d (quantum_preconditioning_src,
+v0.27.0). That package cannot be redistributed here, so the imports below are
+local to the functions that need them rather than top-level, which lets the
+common case, replotting from the cached grid data already checked into
+`scripts/landscape_cache/`, run with no proprietary dependency at all. Only
+`--recompute` (or a cache-cold run) needs the package installed and importable.
 """
 from __future__ import annotations
 
@@ -60,16 +58,6 @@ import matplotlib
 matplotlib.use("Agg")  # headless -- this runs on the cluster, no display
 import matplotlib.pyplot as plt
 import numpy as np
-
-from quantum_preconditioning.problem.quadratic import QuadraticSpinProblem
-from quantum_preconditioning.problem.disk import from_termlist
-from quantum_preconditioning.solver.qaoa_state_vector import (
-    QAOAStateVector as SolverSV,
-    get_average_cost,
-    get_graph_cost,
-    get_qaoa_psi,
-)
-from quantum_preconditioning.utils.qaoa_quadratic_p1_formula import compute_Zi, compute_ZiZj
 
 N_REF = 20  # reference size that everything transfers from
 
@@ -88,6 +76,9 @@ MARKER_SIZE = 14
 # ---------------------------------------------------------------------------
 
 def _load_problem(data_root: Path, N: int, seed: int, pen: float) -> QuadraticSpinProblem:
+    from quantum_preconditioning.problem.quadratic import QuadraticSpinProblem
+    from quantum_preconditioning.problem.disk import from_termlist
+
     prob = from_termlist(str(data_root / f"N={N}" / f"seed={seed}" / "problem.dat"), True)
     penal = from_termlist(str(data_root / f"N={N}" / "penalty.dat"), True)
     terms: dict = defaultdict(float)
@@ -143,6 +134,8 @@ def _eval_cost_p1(p1_data: dict, gamma: float, beta: float) -> float:
     Used only as a correctness oracle for the vectorized landscape below, not for the
     actual grid sweep (each call costs ~0.3-0.6ms of numba parallel-dispatch overhead,
     which is fine once but would take hours over a 40000-point grid)."""
+    from quantum_preconditioning.utils.qaoa_quadratic_p1_formula import compute_Zi, compute_ZiZj
+
     cost = p1_data["constant"]
     for i, h in p1_data["linear"].items():
         cost += h * compute_Zi(gamma, beta, p1_data["connected"][i], h)
@@ -284,6 +277,11 @@ _WORKER_VARY_IDX = None
 
 
 def _setup_worker_state(data_root: Path, N: int, seed: int, pen: float, base_angles: np.ndarray, vary_idx: int) -> None:
+    from quantum_preconditioning.solver.qaoa_state_vector import (
+        QAOAStateVector as SolverSV,
+        get_graph_cost,
+    )
+
     global _WORKER_GRAPH_COST, _WORKER_BASE_ANGLES, _WORKER_VARY_IDX
     problem = _load_problem(data_root, N, seed, pen)
     _WORKER_GRAPH_COST = get_graph_cost(N, *SolverSV(angles=())._format_problem(problem))
@@ -300,6 +298,8 @@ def _init_pool_worker(data_root: Path, N: int, seed: int, pen: float, base_angle
 
 
 def _worker_eval(task: tuple) -> tuple:
+    from quantum_preconditioning.solver.qaoa_state_vector import get_average_cost, get_qaoa_psi
+
     bi, ui, gamma, beta = task
     angles = _WORKER_BASE_ANGLES.copy()
     angles[_WORKER_VARY_IDX] = gamma

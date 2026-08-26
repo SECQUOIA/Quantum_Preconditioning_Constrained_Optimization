@@ -30,11 +30,18 @@ classical sweep count s), and with Gurobi presolve on and off.
   (`grbgetkey <key>`; academic keys require the machine to be on an
   academic-recognized network at the time you run it)
 - For the notebook: `pandas`, `matplotlib`, `jupyter`
-- For `scripts/plot_transfer_landscape.py` only: the internal, unversioned
-  `quantum_preconditioning` package used to generate the source instances.
-  Its source URL and tested revision were not recorded with this dataset, so
-  that landscape is not reproducible from this repository alone; see the
-  script docstring for the exact imports and provenance limitation.
+- For `scripts/recalculate_rho_star.py` only: `numba` (`pip install numba`).
+  No proprietary dependency; this is a self-contained combinatorial
+  computation.
+- For `scripts/plot_transfer_landscape.py`: no extra dependency for the
+  default, cache-hit path, it replots directly from the grid data already
+  checked into `scripts/landscape_cache/`. Only `--recompute` (or a cache-cold
+  run at a new penalty/seed/size) needs the internal, proprietary
+  `quantum_preconditioning` package (Rigetti's QAOA state-vector tooling),
+  source at https://github.com/anurag-r20/Quantum_Preconditioning_Rigetti,
+  commit `211426d23680b0a2b3e782c982699718c04aa68d`. That package cannot be
+  redistributed here, so it is not installable from this repository; see the
+  script docstring for the exact imports.
 
 ## Repo layout
 
@@ -48,8 +55,13 @@ scripts/
   run_experiment.py      CLI runner: solve baseline + preconditioned instances, write summary/trajectory CSVs
   merge_penalty_results.py  Merge a penalty-restricted cluster batch (e.g. results/pen1.1-2.0/) into results/merged/
   verify_results.py       Sanity-check a results CSV: recompute baseline objective from stored bitstrings, check bisection constraint
-  plot_transfer_landscape.py  QAOA parameter-transfer landscape validation (requires the internal,
-                              unversioned quantum_preconditioning package; see its docstring)
+  recalculate_rho_star.py  Exhaustive per-instance critical-penalty computation (paper Appendix A / Fig. 2);
+                           self-contained, no proprietary dependency
+  plot_transfer_landscape.py  QAOA parameter-transfer landscape validation (paper Fig. 8); replots from
+                              scripts/landscape_cache/ with no extra dependency, --recompute needs the
+                              internal quantum_preconditioning package (see its docstring)
+  landscape_cache/       Cached (u, beta, cost) grids + operating points for the three landscape panels,
+                         lets plot_transfer_landscape.py reproduce Fig. 8 without the proprietary package
 
 notebooks/
   analysis.ipynb          All analysis figures (see "Analyze" below)
