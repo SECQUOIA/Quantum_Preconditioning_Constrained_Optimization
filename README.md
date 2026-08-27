@@ -1,15 +1,13 @@
-# Gurobi_QP: baseline vs quantum/classical-preconditioned graph bipartitioning
+# Gurobi_QP: baseline vs QAOA-preconditioned graph bipartitioning
 
 This repo compares solving a graph-bipartitioning QUBO with plain Gurobi
-against solving it with a **preconditioned** objective (from QAOA-derived or
-classical-sweep-derived penalty terms), then re-evaluating both solutions
-under the same baseline objective:
+against solving it with a **preconditioned** objective (from QAOA-derived
+penalty terms), then re-evaluating both solutions under the same baseline
+objective:
 
 - **Baseline** objective from `one_equality_new/complete_random/N=.../seed=.../problem.dat`
 - **Quantum-preconditioned** objectives from
   `.../n_qaoa_layers=<p>/preconditioned_problem_pen=<ρ>.dat`
-- **Classical-preconditioned** objectives from
-  `.../n_sweeps=<s>/preconditioned_problem_pen=<ρ>.dat`
 
 Both are solved with the **same hard bipartitioning constraint** (equal-size partition):
 
@@ -18,8 +16,8 @@ Both are solved with the **same hard bipartitioning constraint** (equal-size par
 - constraint: `sum_i z_i = 0`  ⇔  `sum_i x_i = N/2`
 
 The key comparison is done by **re-evaluating** each preconditioned solution
-under the **baseline** objective, at every tested penalty ρ, QAOA depth p (or
-classical sweep count s), and with Gurobi presolve on and off.
+under the **baseline** objective, at every tested penalty ρ and QAOA depth p,
+with Gurobi presolve on and off.
 
 ## Requirements
 
@@ -91,8 +89,7 @@ mostly small `.dat` files -- not a good fit for git). Download them here:
   (`Data_QP` folder, inside `Quantum_Preconditioning_Constrained_Optimization`)
 
 The Drive folder contains only the `complete_random` graph family used by the
-manuscript, with the classical-sweep subdirectories (`n_sweeps=*`) stripped out
--- just `problem.dat` and `n_qaoa_layers=*/` per instance. After downloading,
+manuscript -- just `problem.dat` and `n_qaoa_layers=*/` per instance. After downloading,
 extract it so the path `one_equality_new/complete_random/` exists at the repo
 root (i.e. place/rename the downloaded `complete_random` folder under
 `one_equality_new/`).
@@ -166,8 +163,8 @@ written by default next to the summary CSV; pass `--trajectory-out
 path/to/file.csv` to choose its path.
 
 This writes a CSV with one row for the baseline solve and one row per
-`penalty` file found under the instance's `n_qaoa_layers=<p>` (or
-`n_sweeps=<s>`) directory. **Empty/truncated preconditioned `.dat` files are
+`penalty` file found under the instance's `n_qaoa_layers=<p>` directory.
+**Empty/truncated preconditioned `.dat` files are
 skipped with a `[WARN]`** rather than crashing the whole run — this can happen
 when a preconditioned-instance generation step failed upstream for a
 particular seed/penalty.
@@ -189,7 +186,7 @@ python3 scripts/merge_penalty_results.py --extra-dir results/pen1.1-2.0
 ```
 
 This writes `results/merged/` (gitignored, rebuild locally) — copying
-untouched files (classical sweeps, `quantum_layers=inf`) as-is, and merging any
+untouched files (`quantum_layers=inf`) as-is, and merging any
 `(N, layers, presolve)` combo that exists in both directories, deduplicating on
 `(name, seed, penalty, presolve[, event_idx])`.
 
@@ -210,12 +207,8 @@ Open and run the notebook:
 - `notebooks/analysis.ipynb`
 
 It reads from `results/merged/` (rebuild via `merge_penalty_results.py` if
-you've added new data). Covers the **quantum (QAOA) preconditioner family
-only** — the classical-sweep family isn't part of the accompanying
-manuscript and isn't analyzed here, though its CLI/data support still exists
-(`--preconditioner classical`, `results/N=*_classical_sweeps=*_*.csv`) for
-anyone who wants to extend the analysis. Sections, in order: approximation
-ratio, PAR-based ε-hit bar charts, a combined ε=0/ε=1% PAR line plot (presolve
+you've added new data). Sections, in order: approximation ratio, PAR-based
+ε-hit bar charts, a combined ε=0/ε=1% PAR line plot (presolve
 enabled vs disabled, side by side, shared y-axis), a single-seed MIPSol
 trajectory plot, scaling across problem sizes, a penalty-strategy comparison
 grid (global fixed-ρ vs. cross-validated ρ selection, presolve enabled vs.
