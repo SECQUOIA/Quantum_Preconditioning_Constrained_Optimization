@@ -53,12 +53,6 @@ results/                Per-(N, family, presolve) summary + trajectory CSVs (tra
   pen1.1-2.0/              Penalty-restricted (ρ∈[1.1,2.0]) cluster batch, merged into results/merged/
 
 figures/                Committed PNGs for the paper and notebook (scaling plots, PAR charts, trajectory, etc.)
-
-logs/                   Per-run Gurobi solver logs (gitignored)
-
-run_job.sh                Cluster job script; run concurrent jobs for different N's by passing
-                           `bash run_job.sh <N> <layers>` to each, so they don't contend over one file
-run_job_n8_fill.sh         One-off script that filled in the missing N=8, p=1, ρ∈[0,1] data
 ```
 
 ## Data
