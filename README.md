@@ -102,7 +102,10 @@ mv ~/Downloads/Data_QP/complete_random one_equality_new/complete_random
 ```
 
 Afterwards, `one_equality_new/complete_random/N=8/seed=0/problem.dat` should
-exist.
+exist. If you'd rather not move anything, every place that needs this data
+takes an override instead of assuming that exact path: pass `--data-root
+<path>` to `run_experiment.py`/`verify_results.py`, or edit the `DATA_ROOT`
+constant near the top of `notebooks/analysis.ipynb`.
 
 Most of the notebook does **not** need this download -- it reads from
 `results/merged/`, which is already tracked in git and holds the actual solve
