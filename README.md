@@ -58,8 +58,7 @@ figures/                Committed PNGs for the paper and notebook (scaling plots
 ## Data
 
 The raw instances, correlation matrices, and QAOA angle files are **not**
-tracked in this repo (182MB, mostly small `.dat` files -- not a good fit for
-git). Download them here:
+tracked in this repo. Download them here:
 
 - https://drive.google.com/drive/folders/1hhkMTsiuaeHySl72kQZ_HwkvuWSu6K1r?usp=sharing
 
@@ -70,8 +69,7 @@ which contains `Data_QP/`, which contains a single subfolder,
 rename anything: just leave the downloaded `Quantum_Preconditioning_Constrained_Optimization/`
 folder inside the repo root, right next to the repo, or in your Downloads or
 Desktop folder, and the notebook/scripts find it automatically in any of
-those locations (`qp_gurobi.instance.resolve_data_root`). If you'd rather
-place it somewhere else, pass its path explicitly: `--data-root <path>` for
+those locations. If you'd rather place it somewhere else, pass its path explicitly: `--data-root <path>` for
 `run_experiment.py`/`verify_results.py`, or set `DATA_ROOT` directly near the
 top of `notebooks/analysis.ipynb`.
 
