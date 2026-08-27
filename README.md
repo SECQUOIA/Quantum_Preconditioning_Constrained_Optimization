@@ -235,7 +235,7 @@ default.
 
 ## References
 
-The QAOA correlation-matrix preconditioning approach this repo builds on:
+The quantum preconditioning approach repo builds on:
 
 - M. Dupont, T. Oberoi, and B. Sundar, "Optimization via quantum
   preconditioning," Phys. Rev. Applied **24**, 044013 (2025).
