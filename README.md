@@ -81,6 +81,37 @@ run_job.sh                Cluster job script; run concurrent jobs for different 
 run_job_n8_fill.sh         One-off script that filled in the missing N=8, p=1, ρ∈[0,1] data
 ```
 
+## Data
+
+The raw instances, correlation matrices, and QAOA angle files
+(`one_equality_new/complete_random/`) are **not** tracked in this repo (182MB,
+mostly small `.dat` files -- not a good fit for git). Download them here:
+
+- https://drive.google.com/drive/folders/1hhkMTsiuaeHySl72kQZ_HwkvuWSu6K1r?usp=sharing
+  (`Data_QP` folder, inside `Quantum_Preconditioning_Constrained_Optimization`)
+
+The Drive folder contains only the `complete_random` graph family used by the
+manuscript, with the classical-sweep subdirectories (`n_sweeps=*`) stripped out
+-- just `problem.dat` and `n_qaoa_layers=*/` per instance. After downloading,
+extract it so the path `one_equality_new/complete_random/` exists at the repo
+root (i.e. place/rename the downloaded `complete_random` folder under
+`one_equality_new/`).
+
+Most of the notebook does **not** need this download -- it reads from
+`results/merged/`, which is already tracked in git and holds the actual solve
+outcomes (objectives, runtimes, trajectories). The raw data is only needed for:
+
+- `scripts/run_experiment.py` and `scripts/verify_results.py`, which solve
+  instances from scratch and default to reading from
+  `one_equality_new/complete_random/`.
+- The notebook's p=infinity reference-curve and alignment-analysis cells,
+  which read specific `preconditioned_problem_pen=<rho>.dat` files directly.
+
+`scripts/plot_transfer_landscape.py` (Fig. 8) does **not** need this data at
+all in its default mode -- it replots from `scripts/landscape_cache/`. Only
+`--recompute` would need both this data and the proprietary
+`quantum_preconditioning` package.
+
 ## Set up the environment
 
 ```bash
@@ -229,10 +260,6 @@ default.
 - `trajectory`: raw incumbent events as `(time_sec, objective_baseline)` pairs
 - `presolve`: whether Gurobi presolve was enabled for the solve
 - `mip_gap`: final Gurobi MIP gap (`None` if no incumbent was found, e.g. under a time limit)
-
-See `BUGS_AND_OPTIMIZATIONS.md` for the status of previously-identified
-correctness bugs (all fixed) and open performance-optimization opportunities
-(none currently a practical bottleneck at this repo's dataset sizes).
 
 ## References
 

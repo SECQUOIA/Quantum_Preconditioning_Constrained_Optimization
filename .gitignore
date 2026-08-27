@@ -3,6 +3,11 @@ Data/
 one_equality/
 one_equality_new/
 
+# Staging area for the complete_random-only export uploaded to Google Drive
+# (see README's Data section) -- not tracked, just a local export target
+gdrive_upload/
+Data_QP/
+
 # Python
 __pycache__/
 *.py[cod]
