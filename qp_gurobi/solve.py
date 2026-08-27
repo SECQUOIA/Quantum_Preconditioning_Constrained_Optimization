@@ -56,8 +56,14 @@ class SolveResult:
         return d
 
 
-def _ising_to_qubo(instance: IsingInstance):
-    """Convert an Ising objective in spins to a binary QUBO expression."""
+def _ising_to_binary_quadratic(instance: IsingInstance):
+    """Convert an Ising objective in spins to a binary quadratic expression.
+
+    Just the objective (constant, linear, quadratic coefficients over x); the
+    bisection constraint is added separately in the caller. Not a QUBO --
+    that term means *unconstrained*, and this problem always carries the
+    hard equal-size-partition constraint.
+    """
     constant = float(instance.constant)
     linear: Dict[int, float] = {}
     quadratic: Dict[Tuple[int, int], float] = {}
@@ -106,7 +112,7 @@ def solve_bisection_ip(
         )
 
     n = instance.n
-    const, lin, quad = _ising_to_qubo(instance)
+    const, lin, quad = _ising_to_binary_quadratic(instance)
 
     model = gp.Model(name)
     # Enable Gurobi output whenever file logging or console output is requested.

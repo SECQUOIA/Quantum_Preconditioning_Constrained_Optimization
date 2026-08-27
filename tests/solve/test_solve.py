@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from qp_gurobi.instance import IsingInstance, eval_ising, z_from_x
-from qp_gurobi.solve import _ising_to_qubo
+from qp_gurobi.solve import _ising_to_binary_quadratic
 
 
 # ---------------------------------------------------------------------------
@@ -25,42 +25,42 @@ def _inst(n: int, constant: float = 0.0, linear=None, quadratic=None) -> IsingIn
 
 
 # ---------------------------------------------------------------------------
-# _ising_to_qubo  (pure, no Gurobi)
+# _ising_to_binary_quadratic  (pure, no Gurobi)
 # ---------------------------------------------------------------------------
 
-class TestIsingToQubo:
-    def test__ising_to_qubo__given_constant_only__no_linear_or_quadratic(self):
+class TestIsingToBinaryQuadratic:
+    def test__ising_to_binary_quadratic__given_constant_only__no_linear_or_quadratic(self):
         # ARRANGE
         inst = _inst(n=2, constant=5.0)
 
         # ACT
-        const, lin, quad = _ising_to_qubo(inst)
+        const, lin, quad = _ising_to_binary_quadratic(inst)
 
         # ASSERT
         assert const == pytest.approx(5.0)
         assert lin == {}
         assert quad == {}
 
-    def test__ising_to_qubo__given_linear_term__produces_correct_qubo_linear(self):
+    def test__ising_to_binary_quadratic__given_linear_term__produces_correct_linear(self):
         # ARRANGE — Ising: h_0 * z_0, substitute z_0 = 2x_0 - 1
         #   => h * (2x-1) = -h (constant shift) + 2h * x
         inst = _inst(n=2, linear={0: 3.0})
 
         # ACT
-        const, lin, quad = _ising_to_qubo(inst)
+        const, lin, quad = _ising_to_binary_quadratic(inst)
 
         # ASSERT
         assert const == pytest.approx(-3.0)    # -h
         assert lin[0] == pytest.approx(6.0)    # 2h
         assert quad == {}
 
-    def test__ising_to_qubo__given_quadratic_coupling__produces_correct_qubo(self):
+    def test__ising_to_binary_quadratic__given_quadratic_coupling__produces_correct_terms(self):
         # ARRANGE — Ising: w * z_i z_j, substitute z = 2x-1
         #   => w*(2x_i-1)*(2x_j-1) = w - 2w x_i - 2w x_j + 4w x_i x_j
         inst = _inst(n=2, quadratic={(0, 1): 2.0})
 
         # ACT
-        const, lin, quad = _ising_to_qubo(inst)
+        const, lin, quad = _ising_to_binary_quadratic(inst)
 
         # ASSERT
         assert const == pytest.approx(2.0)           # +w
@@ -68,38 +68,38 @@ class TestIsingToQubo:
         assert lin[1] == pytest.approx(-4.0)         # -2w
         assert quad[(0, 1)] == pytest.approx(8.0)    # 4w
 
-    def test__ising_to_qubo__zero_linear_coefficients_are_filtered(self):
+    def test__ising_to_binary_quadratic__zero_linear_coefficients_are_filtered(self):
         # ARRANGE — two couplings cancel their linear contributions at node 0
         inst = _inst(n=3, quadratic={(0, 1): 1.0, (0, 2): -1.0})
 
         # ACT
-        _, lin, _ = _ising_to_qubo(inst)
+        _, lin, _ = _ising_to_binary_quadratic(inst)
 
         # ASSERT — coefficient at 0 is -2+2=0, should be absent
         assert 0 not in lin
 
-    def test__ising_to_qubo__qubo_and_ising_agree_at_all_binary_assignments(self):
-        """QUBO objective evaluated at x must equal Ising at z=2x-1."""
+    def test__ising_to_binary_quadratic__agrees_with_ising_at_all_binary_assignments(self):
+        """Binary quadratic objective evaluated at x must equal Ising at z=2x-1."""
         # ARRANGE
         inst = _inst(n=3, constant=1.0, linear={1: -0.5},
                      quadratic={(0, 1): 2.0, (1, 2): -1.0})
-        const, lin, quad = _ising_to_qubo(inst)
+        const, lin, quad = _ising_to_binary_quadratic(inst)
 
         for mask in range(8):  # all 2^3 assignments
             x = [(mask >> i) & 1 for i in range(3)]
             z = z_from_x(x)
 
-            # ACT — evaluate QUBO at x
-            qubo_val = const
+            # ACT — evaluate the binary quadratic expression at x
+            bq_val = const
             for i, c in lin.items():
-                qubo_val += c * x[i]
+                bq_val += c * x[i]
             for (i, j), c in quad.items():
-                qubo_val += c * x[i] * x[j]
+                bq_val += c * x[i] * x[j]
 
             # ASSERT — must match Ising at z
             ising_val = eval_ising(inst, z)
-            assert qubo_val == pytest.approx(ising_val, abs=1e-9), (
-                f"Mismatch at x={x}: QUBO={qubo_val}, Ising={ising_val}"
+            assert bq_val == pytest.approx(ising_val, abs=1e-9), (
+                f"Mismatch at x={x}: binary_quadratic={bq_val}, Ising={ising_val}"
             )
 
 

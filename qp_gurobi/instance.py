@@ -103,6 +103,30 @@ def read_dat(path: str | Path) -> IsingInstance:
     return IsingInstance(n=n, constant=constant, linear=linear, quadratic=quadratic)
 
 
+def resolve_data_root(repo_root: Path) -> Path:
+    """Auto-detect the downloaded raw-instance data folder.
+
+    The Google Drive download (see the README's Data section) unpacks to
+    ``Quantum_Preconditioning_Constrained_Optimization/Data_QP/complete_random``.
+    Rather than requiring the download to be moved/renamed into a specific
+    spot, check a few places a user is likely to have put it -- inside the
+    repo, right next to it, or in their Downloads/Desktop -- and use whichever
+    exists. Falls back to the in-repo location (even if not present yet) so
+    callers still get a predictable path for error messages.
+    """
+    download_tail = Path("Quantum_Preconditioning_Constrained_Optimization") / "Data_QP" / "complete_random"
+    candidates = [
+        repo_root / download_tail,
+        repo_root.parent / download_tail,
+        Path.home() / "Downloads" / download_tail,
+        Path.home() / "Desktop" / download_tail,
+    ]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return candidates[0]
+
+
 def z_from_x(x_bits: List[int]) -> List[int]:
     """Map x in {0,1} to z in {-1,+1} via z=2x-1."""
 

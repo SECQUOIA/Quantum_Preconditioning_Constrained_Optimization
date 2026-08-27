@@ -1,9 +1,16 @@
-# Gurobi_QP: baseline vs quantum-preconditioned instances
+# Gurobi_QP: baseline vs QAOA-preconditioned graph bipartitioning
 
-This repo contains a tiny workflow to compare:
+This repo compares solving a graph-bipartitioning binary quadratic program
+with plain Gurobi against solving it with a **preconditioned** objective
+(from QAOA-derived penalty terms), then re-evaluating both solutions under
+the same baseline objective. The hard bisection constraint below is always
+enforced directly in the Gurobi model, never relaxed into a penalty, so this
+is never an unconstrained (QUBO) problem:
 
-- **Baseline** graph bipartitioning objective from `one_equality_new/complete_random/N=.../seed=.../problem.dat`
-- **Preconditioned** objectives from `one_equality_new/complete_random/N=.../seed=.../n_qaoa_layers=.../preconditioned_problem_pen=<value>.dat`
+- **Baseline** objective from `complete_random/N=.../seed=.../problem.dat`
+  under the raw-data root (see the Data section below)
+- **Quantum-preconditioned** objectives from
+  `.../n_qaoa_layers=<p>/preconditioned_problem_pen=<ρ>.dat`
 
 Both are solved with the **same hard bipartitioning constraint** (equal-size partition):
 
@@ -11,13 +18,115 @@ Both are solved with the **same hard bipartitioning constraint** (equal-size par
 - with `z_i = 2x_i - 1 ∈ {−1,+1}`
 - constraint: `sum_i z_i = 0`  ⇔  `sum_i x_i = N/2`
 
-The key comparison is done by **re-evaluating** each preconditioned solution under the **baseline** objective.
+The key comparison is done by **re-evaluating** each preconditioned solution
+under the **baseline** objective, at every tested penalty ρ and QAOA depth p,
+with Gurobi presolve on and off.
 
 ## Requirements
 
-- Python 3
-- `gurobipy` and a working Gurobi license (the solver code imports `gurobipy`)
-- For plotting in the notebook: `pandas`, `matplotlib`
+- Python 3.11, in a conda env named `Gurobi_QP` (no `environment.yml` yet —
+  create the env and `pip install gurobipy pandas matplotlib numpy pytest
+  jupyter jupyterlab`)
+- `gurobipy` (13.0.2 in this env) with a working Gurobi license
+  (`grbgetkey <key>`; academic keys require the machine to be on an
+  academic-recognized network at the time you run it)
+- For the notebook: `pandas`, `matplotlib`, `jupyter`
+- For `scripts/recalculate_rho_star.py` only: `numba` (`pip install numba`).
+  No proprietary dependency; this is a self-contained combinatorial
+  computation.
+- For `scripts/plot_transfer_landscape.py`: the cache-hit path replots
+  directly from the grid data already checked into
+  `scripts/landscape_cache/`, no extra dependency for `--layer 2` or `3`.
+  `--layer 1` additionally needs `numba` (`pip install numba`) even on the
+  cache-hit path, since its thread-count tuning for the p=1 kernels runs
+  before the plot is drawn. Only `--recompute` (or a cache-cold run at a new
+  penalty/seed/size) needs the internal, proprietary `quantum_preconditioning`
+  package (Rigetti's QAOA state-vector tooling), source at
+  https://github.com/anurag-r20/Quantum_Preconditioning_Rigetti (private;
+  access on request), commit `211426d23680b0a2b3e782c982699718c04aa68d`. That
+  package cannot be redistributed here, so it is not installable from this
+  repository; see the script docstring for the exact imports.
+
+## Repo layout
+
+```
+qp_gurobi/            Core package
+  instance.py           .dat parser + Ising objective evaluation
+  solve.py              Gurobi model construction + solve (bisection-constrained QP)
+  utils.py              All notebook plotting/analysis functions (large; one function per figure/family)
+
+scripts/
+  run_experiment.py      CLI runner: solve baseline + preconditioned instances, write summary/trajectory CSVs
+  merge_penalty_results.py  Merge a penalty-restricted cluster batch (e.g. results/pen1.1-2.0/) into results/merged/
+  verify_results.py       Sanity-check a results CSV: recompute baseline objective from stored bitstrings, check bisection constraint
+  recalculate_rho_star.py  Exhaustive per-instance critical-penalty computation (paper Appendix A / Fig. 2);
+                           self-contained, no proprietary dependency
+  plot_transfer_landscape.py  QAOA parameter-transfer landscape validation (paper Fig. 8); replots from
+                              scripts/landscape_cache/ with no extra dependency, --recompute needs the
+                              internal quantum_preconditioning package (see its docstring)
+  landscape_cache/       Cached (u, beta, cost) grids + operating points for the three landscape panels,
+                         lets plot_transfer_landscape.py reproduce Fig. 8 without the proprietary package
+
+notebooks/
+  analysis.ipynb          All analysis figures (see "Analyze" below)
+
+tests/                  pytest suite for qp_gurobi/ and scripts/run_experiment.py
+
+results/                Per-(N, family, presolve) summary + trajectory CSVs (tracked in git)
+  merged/                 Generated by merge_penalty_results.py -- gitignored, rebuild locally when needed
+  pen1.1-2.0/              Penalty-restricted (ρ∈[1.1,2.0]) cluster batch, merged into results/merged/
+
+figures/                Committed PNGs for the paper and notebook (scaling plots, PAR charts, trajectory, etc.)
+
+logs/                   Per-run Gurobi solver logs (gitignored)
+
+run_job.sh                Cluster job script; run concurrent jobs for different N's by passing
+                           `bash run_job.sh <N> <layers>` to each, so they don't contend over one file
+run_job_n8_fill.sh         One-off script that filled in the missing N=8, p=1, ρ∈[0,1] data
+```
+
+## Data
+
+The raw instances, correlation matrices, and QAOA angle files are **not**
+tracked in this repo (182MB, mostly small `.dat` files -- not a good fit for
+git). Download them here:
+
+- https://drive.google.com/drive/folders/1hhkMTsiuaeHySl72kQZ_HwkvuWSu6K1r?usp=sharing
+
+Downloading gives you `Quantum_Preconditioning_Constrained_Optimization/`,
+which contains `Data_QP/`, which contains a single subfolder,
+`complete_random/` (only the graph family used by the manuscript -- just
+`problem.dat` and `n_qaoa_layers=*/` per instance). No need to move or
+rename anything: just leave the downloaded `Quantum_Preconditioning_Constrained_Optimization/`
+folder inside the repo root, right next to the repo, or in your Downloads or
+Desktop folder, and the notebook/scripts find it automatically in any of
+those locations (`qp_gurobi.instance.resolve_data_root`). If you'd rather
+place it somewhere else, pass its path explicitly: `--data-root <path>` for
+`run_experiment.py`/`verify_results.py`, or set `DATA_ROOT` directly near the
+top of `notebooks/analysis.ipynb`.
+
+Most of the notebook does **not** need this download -- it reads from
+`results/merged/`, which is already tracked in git and holds the actual solve
+outcomes (objectives, runtimes, trajectories). The raw data is only needed for:
+
+- `scripts/run_experiment.py` and `scripts/verify_results.py`, which solve
+  instances from scratch and default to the auto-detected data root above.
+- The notebook's p=infinity reference-curve and alignment-analysis cells,
+  which read specific `preconditioned_problem_pen=<rho>.dat` files directly.
+
+`scripts/plot_transfer_landscape.py` (Fig. 8) does **not** need this data at
+all in its default mode -- it replots from `scripts/landscape_cache/`. Only
+`--recompute` would need both this data and the proprietary
+`quantum_preconditioning` package.
+
+## Set up the environment
+
+```bash
+conda create -n Gurobi_QP python=3.11
+conda activate Gurobi_QP
+pip install gurobipy pandas matplotlib numpy pytest jupyter jupyterlab
+grbgetkey <your-license-key>   # academic keys need an academic-recognized network
+```
 
 ## Run the experiment
 
@@ -27,7 +136,8 @@ From the repo root:
 python3 scripts/run_experiment.py --n 8 --seed 0 --layers 1 --out results/test.csv
 ```
 
-By default, the runner looks under `one_equality_new/complete_random`.
+By default, the runner uses the auto-detected data root (see the Data
+section above); pass `--data-root <path>` to point at a different location.
 
 Multi-seed run (flexible: discovers whatever penalty files exist per seed):
 
@@ -39,6 +149,12 @@ Or run all available `seed=*` folders under a given `N=...`:
 
 ```bash
 python3 scripts/run_experiment.py --n 20 --layers 1 --all-seeds --out results/N=20_seeds=all_layers=1.csv
+```
+
+Restrict to a penalty range (e.g. for splitting a sweep across cluster jobs):
+
+```bash
+python3 scripts/run_experiment.py --n 20 --layers 1 --all-seeds --pen-min 1.1 --pen-max 2.0 --out results/pen1.1-2.0/N=20_layers=1_presolve_on.csv
 ```
 
 Disable Gurobi presolve for a pure branch-and-bound comparison:
@@ -53,9 +169,16 @@ The runner also supports solver controls and diagnostics:
 python3 scripts/run_experiment.py --n 20 --layers 1 --all-seeds --threads 8 --gurobi-seed 0 --log-dir logs
 ```
 
-Use `--show-logs` to stream Gurobi logs to the console. A trajectory CSV is written by default next to the summary CSV; pass `--trajectory-out path/to/file.csv` to choose its path.
+Use `--show-logs` to stream Gurobi logs to the console. A trajectory CSV is
+written by default next to the summary CSV; pass `--trajectory-out
+path/to/file.csv` to choose its path.
 
-This writes a CSV with one row for the baseline solve and one row per `penalty` file.
+This writes a CSV with one row for the baseline solve and one row per
+`penalty` file found under the instance's `n_qaoa_layers=<p>` directory.
+**Empty/truncated preconditioned `.dat` files are
+skipped with a `[WARN]`** rather than crashing the whole run — this can happen
+when a preconditioned-instance generation step failed upstream for a
+particular seed/penalty.
 
 If you want to limit runtime:
 
@@ -63,13 +186,72 @@ If you want to limit runtime:
 python3 scripts/run_experiment.py --time-limit 60 --mip-gap 1e-6
 ```
 
+## Merging penalty-restricted cluster batches
+
+If you ran a penalty-restricted sweep on a cluster (e.g. `results/pen1.1-2.0/`)
+separately from the original full-range sweep (`results/`), merge them into a
+single deduplicated directory before analysis:
+
+```bash
+python3 scripts/merge_penalty_results.py --extra-dir results/pen1.1-2.0
+```
+
+This writes `results/merged/` (gitignored, rebuild locally) — copying
+untouched files (`quantum_layers=inf`) as-is, and merging any
+`(N, layers, presolve)` combo that exists in both directories, deduplicating on
+`(name, seed, penalty, presolve[, event_idx])`.
+
+## Verifying results
+
+```bash
+python3 scripts/verify_results.py --csv results/N=20_layers=1_presolve_on.csv
+```
+
+Recomputes the baseline objective from each row's stored bitstring and checks
+the bisection constraint (`sum_z == 0`), independent of whatever Gurobi
+reported — useful for catching data-corruption or parsing bugs.
+
 ## Analyze
 
 Open and run the notebook:
 
 - `notebooks/analysis.ipynb`
 
-It reads from the committed CSVs under `results/`.
+It reads from `results/merged/` (rebuild via `merge_penalty_results.py` if
+you've added new data). Sections, in order: approximation ratio, PAR-based
+ε-hit bar charts, a combined ε=0/ε=1% PAR line plot (presolve
+enabled vs disabled, side by side, shared y-axis), a single-seed MIPSol
+trajectory plot, scaling across problem sizes, a penalty-strategy comparison
+grid (global fixed-ρ vs. cross-validated ρ selection, presolve enabled vs.
+disabled), and a performance-distribution plot (final solution quality vs.
+the classical baseline, per QAOA depth).
+
+Penalty-selection strategies used in the scaling plots (`qp_gurobi.utils._apply_penalty_strategy`):
+- **`oracle`**: retrospective best ρ per instance (upper bound — requires hindsight).
+- **`fixed`**: one ρ held fixed across every instance and N for a given depth,
+  chosen as the argmin of the mean hit-time averaged across N (restricted to ρ
+  values tested at every N) — not an average of each instance's own best ρ,
+  which can land on a value that's bad for everyone.
+- **`loo`**: cross-validated — for each seed, ρ is chosen from the mean over
+  *other* seeds at the same N.
+
+N=8 is excluded from the quantum scaling plots: at that size, the
+preconditioned instance's time-to-1%-optimal is anomalously large relative to
+N=12 (a real effect, verified against raw Gurobi `runtime_sec`, not a
+plotting bug or hardware artifact — see git history for the investigation).
+p=2 and p=3 were only run up to N=28, so their exponential fits rest on just
+5 problem sizes and carry more uncertainty than the p=1 fit — the ±σ on the
+fitted base shown in each legend label quantifies this.
+
+## Testing
+
+```bash
+pytest -m "not integration"
+```
+
+Runs the full unit-test suite (fast, no Gurobi license required). Integration
+tests (`-m integration`) require a working Gurobi license and are excluded by
+default.
 
 ## Output columns
 
@@ -78,13 +260,20 @@ It reads from the committed CSVs under `results/`.
 - `x_bits`: bitstring of `x ∈ {0,1}`
 - `z_bits`: visualization of `z ∈ {−1,+1}` as `-` and `+`
 - `sum_z`: should be `0` due to hard constraint
-- `time_to_best_sec`: first time when the best baseline-objective incumbent was found
+- `time_to_best_sec`: first time when the best baseline-objective incumbent was found (only advances on strict improvement)
 - `trajectory`: raw incumbent events as `(time_sec, objective_baseline)` pairs
 - `presolve`: whether Gurobi presolve was enabled for the solve
+- `mip_gap`: final Gurobi MIP gap (`None` if no incumbent was found, e.g. under a time limit)
 
-## Code layout
+## References
 
-- `qp_gurobi/instance.py`: .dat parser + objective evaluation
-- `qp_gurobi/solve.py`: Gurobi model and solve routines
-- `scripts/run_experiment.py`: CLI runner
-- `notebooks/analysis.ipynb`: plots
+The QAOA correlation-matrix preconditioning approach this repo builds on:
+
+- M. Dupont, T. Oberoi, and B. Sundar, "Optimization via quantum
+  preconditioning," Phys. Rev. Applied **24**, 044013 (2025).
+  DOI: [10.1103/9prw-684p](https://doi.org/10.1103/9prw-684p)
+- M. Dupont, B. Sundar, B. Evert, D. E. Bernal Neira, Z. Peng, S. Jeffrey,
+  and M. J. Hodson, "Benchmarking quantum optimization for the maximum-cut
+  problem on a superconducting quantum computer," Phys. Rev. Applied **23**,
+  014045 (2025). DOI:
+  [10.1103/PhysRevApplied.23.014045](https://doi.org/10.1103/PhysRevApplied.23.014045)

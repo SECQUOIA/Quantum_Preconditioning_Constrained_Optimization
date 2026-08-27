@@ -1,10 +1,12 @@
 """Unit tests for analysis metrics in qp_gurobi/utils.py.
 
-Covers the four confirmed bugs from BUGS_AND_OPTIMIZATIONS.md:
-  Bug #1 — time_to_best_sec  (tested in tests/solve/)
-  Bug #2 — epsilon threshold formula  (documented here; see note in class)
-  Bug #3 — cross-join on missing 'n' key in prepare_penalty_metrics
-  Bug #4 — SEM denominator: hit_count vs total_count
+Covers four previously-fixed correctness bugs:
+  Bug #1 — time_to_best_sec advanced on every incumbent instead of only on
+           strict improvement over the running best  (tested in tests/solve/)
+  Bug #2 — epsilon threshold formula for negative objectives  (see note in class)
+  Bug #3 — prepare_penalty_metrics cross-joined seeds across different N values
+           when the merge key omitted 'n'
+  Bug #4 — hit-time SEM divided by sqrt(hit_count) instead of sqrt(total_count)
 
 No Gurobi dependency; all tests are pure pandas/numpy.
 """
@@ -17,6 +19,7 @@ import pytest
 from qp_gurobi.utils import (
     PlotConfig,
     _aggregate_hit_time_stats,
+    compute_fixed_rho_by_depth,
     plot_hit_time_vs_penalty,
     plot_performance_distribution,
     prepare_hit_time_metrics,
@@ -97,6 +100,61 @@ def _make_hit_df_fixture(
     traj_df = pd.DataFrame(traj_rows)
     cfg = PlotConfig(n=8, layers=1, family="quantum")
     return summary_df, {True: traj_df}, cfg
+
+
+def _make_disagreeing_penalty_df() -> pd.DataFrame:
+    """Build two seeds whose individually best penalties disagree."""
+    return pd.DataFrame(
+        [
+            {"name": "baseline", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -10.0, "penalty": None},
+            {"name": "baseline", "n": 8, "seed": 1, "presolve": True, "objective_baseline": -10.0, "penalty": None},
+            {"name": "precond_pen=0.100", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -9.9, "penalty": 0.1},
+            {"name": "precond_pen=0.200", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -9.8, "penalty": 0.2},
+            {"name": "precond_pen=0.300", "n": 8, "seed": 0, "presolve": True, "objective_baseline": -9.0, "penalty": 0.3},
+            {"name": "precond_pen=0.100", "n": 8, "seed": 1, "presolve": True, "objective_baseline": -9.1, "penalty": 0.1},
+            {"name": "precond_pen=0.200", "n": 8, "seed": 1, "presolve": True, "objective_baseline": -9.75, "penalty": 0.2},
+            {"name": "precond_pen=0.300", "n": 8, "seed": 1, "presolve": True, "objective_baseline": -9.9, "penalty": 0.3},
+        ]
+    )
+
+
+def _make_conflicting_hit_vs_quality_fixture() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Two penalties at one N/depth where hit-time and final-quality disagree.
+
+    ρ=0.3 reaches the eps threshold fast (t=0.2s) but settles on a slightly
+    worse final objective (0.5% gap); ρ=0.6 reaches it slowly (t=5.0s) but
+    settles on the exact optimum (0% gap). A hit-time-based "fixed" selection
+    must pick 0.3; a quality-gap-based one would pick 0.6 instead.
+    """
+    base_opt = 10.0
+    summary_rows = []
+    traj_rows = []
+    for seed in (0, 1):
+        summary_rows.append({
+            "name": "baseline", "n": 8, "seed": seed, "presolve": True,
+            "objective_baseline": base_opt, "penalty": None, "layers": 1,
+        })
+        summary_rows.append({
+            "name": "precond_pen=0.300", "n": 8, "seed": seed, "presolve": True,
+            "objective_baseline": 10.05, "penalty": 0.3, "layers": 1,
+        })
+        summary_rows.append({
+            "name": "precond_pen=0.600", "n": 8, "seed": seed, "presolve": True,
+            "objective_baseline": base_opt, "penalty": 0.6, "layers": 1,
+        })
+        for penalty, name, events in (
+            (0.3, "precond_pen=0.300", [(0.01, 15.0), (0.2, 10.05)]),
+            (0.6, "precond_pen=0.600", [(0.01, 15.0), (5.0, base_opt)]),
+        ):
+            best = float("inf")
+            for idx, (t, v) in enumerate(events):
+                best = min(best, v)
+                traj_rows.append({
+                    "name": name, "n": 8, "seed": seed, "penalty": penalty,
+                    "presolve": True, "event_idx": idx, "time_sec": t,
+                    "running_best_orig_obj": best, "layers": 1,
+                })
+    return pd.DataFrame(summary_rows), pd.DataFrame(traj_rows)
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +326,134 @@ class TestPlotPerformanceDistribution:
         ]
         assert len(offsets) == 1
         assert offsets[0][0, 1] == pytest.approx(2.0)
+
+    def test__plot_performance_distribution__given_multiple_seeds__uses_fixed_penalty_not_per_seed_oracle(self):
+        # A single seed can't distinguish "oracle per instance" from "fixed
+        # per depth" (both degenerate to the same pick). With two seeds whose
+        # individual best penalties disagree, the fixed strategy must hold one
+        # penalty fixed across both -- picking the penalty with the best
+        # *average* gap (0.2, avg gap 2.25) over the oracle-per-seed pick
+        # (which would use 0.1 for seed 0 and 0.3 for seed 1, both gap 1.0).
+        df = _make_disagreeing_penalty_df()
+
+        # ACT
+        fig = plot_performance_distribution({"p=1": df}, presolve=True, reference_lines=[])
+
+        # ASSERT
+        offsets = [
+            collection.get_offsets()
+            for collection in fig.axes[1].collections
+            if len(collection.get_offsets())
+        ]
+        assert len(offsets) == 1
+        gaps = sorted(offsets[0][:, 1])
+        assert gaps == pytest.approx([2.0, 2.5])
+
+    def test__plot_performance_distribution__given_oracle_strategy__uses_best_penalty_per_seed(self):
+        # ARRANGE
+        df = _make_disagreeing_penalty_df()
+
+        # ACT
+        fig = plot_performance_distribution(
+            {"p=1": df}, presolve=True, reference_lines=[], strategy="oracle"
+        )
+
+        # ASSERT
+        offsets = [
+            collection.get_offsets()
+            for collection in fig.axes[1].collections
+            if len(collection.get_offsets())
+        ]
+        assert len(offsets) == 1
+        gaps = sorted(offsets[0][:, 1])
+        assert gaps == pytest.approx([1.0, 1.0])
+
+    def test__plot_performance_distribution__given_fixed_rho_by_label__overrides_internal_selection(self):
+        # The internal "fixed" strategy selects rho against quality gap and
+        # would pick 0.2 here (see the sibling test above). A caller wanting
+        # this plot to report quality under the scaling grid's own Global-rho
+        # choice (selected against hit-time, a different quantity) needs an
+        # explicit override, since the two selections are not guaranteed to
+        # agree and silently falling back to the internal pick would
+        # reintroduce the exact cross-figure mismatch this parameter fixes.
+        df = _make_disagreeing_penalty_df()
+
+        # ACT: force rho=0.3, which the quality-based "fixed" strategy would
+        # not have chosen on its own.
+        fig = plot_performance_distribution(
+            {"p=1": df}, presolve=True, reference_lines=[],
+            fixed_rho_by_label={"p=1": 0.3},
+        )
+
+        # ASSERT
+        offsets = [
+            collection.get_offsets()
+            for collection in fig.axes[1].collections
+            if len(collection.get_offsets())
+        ]
+        assert len(offsets) == 1
+        gaps = sorted(offsets[0][:, 1])
+        assert gaps == pytest.approx([1.0, 10.0])
+
+    def test__plot_performance_distribution__given_fixed_rho_by_label_missing_a_label__raises(self):
+        df = _make_disagreeing_penalty_df()
+
+        with pytest.raises(KeyError):
+            plot_performance_distribution(
+                {"p=1": df}, presolve=True, reference_lines=[],
+                fixed_rho_by_label={"p=2": 0.3},
+            )
+
+
+# ---------------------------------------------------------------------------
+# compute_fixed_rho_by_depth
+# ---------------------------------------------------------------------------
+
+class TestComputeFixedRhoByDepth:
+    def test__compute_fixed_rho_by_depth__matches_grid_selected_rho(self):
+        # ARRANGE: the hit-time fixture already carries a "layers" column,
+        # so it doubles as a minimal stand-in for the scaling grid's own
+        # summary_df/traj_df.
+        summary_df, traj_by_presolve, _cfg = _make_hit_df_fixture(
+            n_seeds=2, n_hitting=2, base_opt=10.0, eps=0.01, hit_times=[0.2, 0.5],
+        )
+        # The fixture's trajectory rows omit "n" (fine for prepare_hit_time_metrics,
+        # which is always called for one fixed size), but _compute_eps_hit_col
+        # groups across "n" too, so add it here to match summary_df.
+        traj_df = traj_by_presolve[True].copy()
+        traj_df["n"] = 8
+
+        # ACT
+        result = compute_fixed_rho_by_depth(
+            summary_df=summary_df,
+            traj_df=traj_df,
+            layers_list=[1],
+            presolve=True,
+            eps_threshold=0.01,
+        )
+
+        # ASSERT: a single tested penalty degenerates to itself being picked.
+        assert result == pytest.approx({1.0: 0.3})
+
+    def test__compute_fixed_rho_by_depth__picks_hit_time_argmin_not_quality_argmin(self):
+        # ARRANGE: rho=0.3 is faster to hit but ends up slightly worse; rho=0.6
+        # is slower but exact. This is the only way to actually exercise the
+        # helper's "hit-time" semantics -- with a single tested penalty (as in
+        # the test above) any selection rule degenerates to picking it.
+        summary_df, traj_df = _make_conflicting_hit_vs_quality_fixture()
+
+        # ACT
+        result = compute_fixed_rho_by_depth(
+            summary_df=summary_df,
+            traj_df=traj_df,
+            layers_list=[1],
+            presolve=True,
+            eps_threshold=0.01,
+        )
+
+        # ASSERT: hit-time argmin (0.3), not the quality-gap argmin (0.6) a
+        # final-objective-based strategy would have picked instead.
+        assert result == pytest.approx({1.0: 0.3})
 
 
 # ---------------------------------------------------------------------------

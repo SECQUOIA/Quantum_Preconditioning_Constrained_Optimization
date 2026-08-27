@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from qp_gurobi.instance import trajectory_to_running_best
+from qp_gurobi.instance import resolve_data_root, trajectory_to_running_best
 from qp_gurobi.solve import solve_from_paths
 
 
@@ -54,6 +54,9 @@ def _discover_preconditioned(layer_dir: Path) -> List[Tuple[float, Path]]:
         if not m:
             continue
         pen = float(m.group("pen"))
+        if not p.read_text().strip():
+            print(f"[WARN] Empty preconditioned file, skipping penalty={pen:.3f}: {p}")
+            continue
         items.append((pen, p))
     if not items:
         raise FileNotFoundError(f"No preconditioned_problem_pen=*.dat found under {layer_dir}")
@@ -97,8 +100,8 @@ def main() -> int:
     ap.add_argument(
         "--data-root",
         type=Path,
-        default=Path("one_equality_new") / "complete_random",
-        help="Root data folder (default: one_equality_new/complete_random)",
+        default=resolve_data_root(REPO_ROOT),
+        help="Root data folder (default: auto-detected download location, see README's Data section)",
     )
     ap.add_argument("--n", type=int, default=8, help="Problem size N (default: 8)")
     ap.add_argument("--seed", type=int, default=None, help="Single seed to run (legacy; prefer --seeds or --all-seeds)")
@@ -119,6 +122,8 @@ def main() -> int:
     ap.add_argument("--show-logs", action="store_true", help="Stream Gurobi log output to the console")
     ap.add_argument("--log-dir", type=Path, default=None, help="If set, write per-run Gurobi logs into this directory")
     ap.add_argument("--no-presolve", action="store_true", help="Disable Gurobi presolve (pure branch-and-bound)")
+    ap.add_argument("--pen-min", type=float, default=None, help="Only run penalties >= this value (inclusive)")
+    ap.add_argument("--pen-max", type=float, default=None, help="Only run penalties <= this value (inclusive)")
     ap.add_argument(
         "--out",
         type=Path,
@@ -192,6 +197,14 @@ def main() -> int:
             precond = _discover_preconditioned(precond_dir)
         except FileNotFoundError as e:
             print(f"[WARN] {e} (skipping seed={seed})")
+            continue
+
+        if args.pen_min is not None:
+            precond = [(p, f) for p, f in precond if p >= args.pen_min - 1e-9]
+        if args.pen_max is not None:
+            precond = [(p, f) for p, f in precond if p <= args.pen_max + 1e-9]
+        if not precond:
+            print(f"[WARN] No penalties in range after filtering (skipping seed={seed})")
             continue
 
         seed_log_dir = None
