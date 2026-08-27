@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from qp_gurobi.instance import trajectory_to_running_best
+from qp_gurobi.instance import resolve_data_root, trajectory_to_running_best
 from qp_gurobi.solve import solve_from_paths
 
 
@@ -100,8 +100,8 @@ def main() -> int:
     ap.add_argument(
         "--data-root",
         type=Path,
-        default=Path("one_equality_new") / "complete_random",
-        help="Root data folder (default: one_equality_new/complete_random)",
+        default=resolve_data_root(REPO_ROOT),
+        help="Root data folder (default: auto-detected download location, see README's Data section)",
     )
     ap.add_argument("--n", type=int, default=8, help="Problem size N (default: 8)")
     ap.add_argument("--seed", type=int, default=None, help="Single seed to run (legacy; prefer --seeds or --all-seeds)")

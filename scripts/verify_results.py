@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from qp_gurobi.instance import eval_ising, read_dat, z_from_x
+from qp_gurobi.instance import eval_ising, read_dat, resolve_data_root, z_from_x
 
 
 def _parse_x_bits(x_bits: str, n: int) -> list[int]:
@@ -38,8 +38,8 @@ def main() -> int:
     ap.add_argument(
         "--data-root",
         type=Path,
-        default=Path("one_equality_new") / "complete_random",
-        help="Root data folder (default: one_equality_new/complete_random)",
+        default=resolve_data_root(REPO_ROOT),
+        help="Root data folder (default: auto-detected download location, see README's Data section)",
     )
     ap.add_argument("--n", type=int, required=True, help="Problem size N")
     ap.add_argument("--seed", type=int, required=True, help="Seed folder")

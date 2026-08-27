@@ -8,6 +8,8 @@ import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
 
+from qp_gurobi.instance import resolve_data_root
+
 
 @dataclass(frozen=True)
 class PlotConfig:
@@ -305,9 +307,8 @@ def _resolve_existing_data_root(
                 candidates.append((repo_root / tail).resolve())
                 candidates.append((results_dir.parent / tail).resolve())
 
-    # Standard local repo location.
-    candidates.append((repo_root / "one_equality_new" / "complete_random").resolve())
-    candidates.append((results_dir.parent / "one_equality_new" / "complete_random").resolve())
+    # Auto-detected download location (see resolve_data_root / README's Data section).
+    candidates.append(resolve_data_root(repo_root).resolve())
 
     seen: set[Path] = set()
     for candidate in candidates:
@@ -682,7 +683,7 @@ def load_quantum_infinite_depth_comparison_data(
     problem_sizes: Iterable[int],
     presolve: bool,
     results_dir: Path | str = "../results",
-    data_root: Path | str = "one_equality_new/complete_random",
+    data_root: Optional[Path | str] = None,
     threads: Optional[int] = None,
     mip_gap: Optional[float] = None,
     gurobi_seed: Optional[int] = None,
@@ -691,6 +692,9 @@ def load_quantum_infinite_depth_comparison_data(
 ) -> pd.DataFrame:
     """Load or generate idealized infinite-depth quantum comparison data."""
     from .instance import read_dat
+
+    if data_root is None:
+        data_root = resolve_data_root(Path(__file__).resolve().parents[1])
     from .solve import solve_bisection_ip
 
     results_dir = Path(results_dir)

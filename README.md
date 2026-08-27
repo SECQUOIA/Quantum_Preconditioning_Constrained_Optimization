@@ -7,7 +7,8 @@ the same baseline objective. The hard bisection constraint below is always
 enforced directly in the Gurobi model, never relaxed into a penalty, so this
 is never an unconstrained (QUBO) problem:
 
-- **Baseline** objective from `one_equality_new/complete_random/N=.../seed=.../problem.dat`
+- **Baseline** objective from `complete_random/N=.../seed=.../problem.dat`
+  under the raw-data root (see the Data section below)
 - **Quantum-preconditioned** objectives from
   `.../n_qaoa_layers=<p>/preconditioned_problem_pen=<ρ>.dat`
 
@@ -95,25 +96,21 @@ git). Download them here:
 Downloading gives you `Quantum_Preconditioning_Constrained_Optimization/`,
 which contains `Data_QP/`, which contains a single subfolder,
 `complete_random/` (only the graph family used by the manuscript -- just
-`problem.dat` and `n_qaoa_layers=*/` per instance). Move that innermost
-folder to `<repo root>/one_equality_new/complete_random/`. From the repo
-root, with the download in e.g. `~/Downloads`:
-
-```bash
-mkdir -p one_equality_new
-mv ~/Downloads/Quantum_Preconditioning_Constrained_Optimization/Data_QP/complete_random one_equality_new/complete_random
-```
-
-Afterwards, `one_equality_new/complete_random/N=8/seed=0/problem.dat` should
-exist.
+`problem.dat` and `n_qaoa_layers=*/` per instance). No need to move or
+rename anything: just leave the downloaded `Quantum_Preconditioning_Constrained_Optimization/`
+folder inside the repo root, right next to the repo, or in your Downloads or
+Desktop folder, and the notebook/scripts find it automatically in any of
+those locations (`qp_gurobi.instance.resolve_data_root`). If you'd rather
+place it somewhere else, pass its path explicitly: `--data-root <path>` for
+`run_experiment.py`/`verify_results.py`, or set `DATA_ROOT` directly near the
+top of `notebooks/analysis.ipynb`.
 
 Most of the notebook does **not** need this download -- it reads from
 `results/merged/`, which is already tracked in git and holds the actual solve
 outcomes (objectives, runtimes, trajectories). The raw data is only needed for:
 
 - `scripts/run_experiment.py` and `scripts/verify_results.py`, which solve
-  instances from scratch and default to reading from
-  `one_equality_new/complete_random/`.
+  instances from scratch and default to the auto-detected data root above.
 - The notebook's p=infinity reference-curve and alignment-analysis cells,
   which read specific `preconditioned_problem_pen=<rho>.dat` files directly.
 
@@ -139,7 +136,8 @@ From the repo root:
 python3 scripts/run_experiment.py --n 8 --seed 0 --layers 1 --out results/test.csv
 ```
 
-By default, the runner looks under `one_equality_new/complete_random`.
+By default, the runner uses the auto-detected data root (see the Data
+section above); pass `--data-root <path>` to point at a different location.
 
 Multi-seed run (flexible: discovers whatever penalty files exist per seed):
 
