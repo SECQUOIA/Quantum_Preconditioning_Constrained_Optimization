@@ -81,18 +81,28 @@ run_job_n8_fill.sh         One-off script that filled in the missing N=8, p=1, Ï
 
 ## Data
 
-The raw instances, correlation matrices, and QAOA angle files
-(`one_equality_new/complete_random/`) are **not** tracked in this repo (182MB,
-mostly small `.dat` files -- not a good fit for git). Download them here:
+The raw instances, correlation matrices, and QAOA angle files are **not**
+tracked in this repo (182MB, mostly small `.dat` files -- not a good fit for
+git). Download them here:
 
 - https://drive.google.com/drive/folders/1hhkMTsiuaeHySl72kQZ_HwkvuWSu6K1r?usp=sharing
   (`Data_QP` folder, inside `Quantum_Preconditioning_Constrained_Optimization`)
 
-The Drive folder contains only the `complete_random` graph family used by the
-manuscript -- just `problem.dat` and `n_qaoa_layers=*/` per instance. After downloading,
-extract it so the path `one_equality_new/complete_random/` exists at the repo
-root (i.e. place/rename the downloaded `complete_random` folder under
-`one_equality_new/`).
+`Data_QP` contains a single subfolder, `complete_random/` (only the graph
+family used by the manuscript -- just `problem.dat` and `n_qaoa_layers=*/`
+per instance). The code expects that folder at
+`<repo root>/one_equality_new/complete_random/`, so after downloading, create
+the missing `one_equality_new` directory yourself and move `complete_random`
+into it. From the repo root, with `Data_QP` downloaded into e.g.
+`~/Downloads/Data_QP`:
+
+```bash
+mkdir -p one_equality_new
+mv ~/Downloads/Data_QP/complete_random one_equality_new/complete_random
+```
+
+Afterwards, `one_equality_new/complete_random/N=8/seed=0/problem.dat` should
+exist.
 
 Most of the notebook does **not** need this download -- it reads from
 `results/merged/`, which is already tracked in git and holds the actual solve
