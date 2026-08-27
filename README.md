@@ -31,15 +31,18 @@ with Gurobi presolve on and off.
 - For `scripts/recalculate_rho_star.py` only: `numba` (`pip install numba`).
   No proprietary dependency; this is a self-contained combinatorial
   computation.
-- For `scripts/plot_transfer_landscape.py`: no extra dependency for the
-  default, cache-hit path, it replots directly from the grid data already
-  checked into `scripts/landscape_cache/`. Only `--recompute` (or a cache-cold
-  run at a new penalty/seed/size) needs the internal, proprietary
-  `quantum_preconditioning` package (Rigetti's QAOA state-vector tooling),
-  source at https://github.com/anurag-r20/Quantum_Preconditioning_Rigetti,
-  commit `211426d23680b0a2b3e782c982699718c04aa68d`. That package cannot be
-  redistributed here, so it is not installable from this repository; see the
-  script docstring for the exact imports.
+- For `scripts/plot_transfer_landscape.py`: the cache-hit path replots
+  directly from the grid data already checked into
+  `scripts/landscape_cache/`, no extra dependency for `--layer 2` or `3`.
+  `--layer 1` additionally needs `numba` (`pip install numba`) even on the
+  cache-hit path, since its thread-count tuning for the p=1 kernels runs
+  before the plot is drawn. Only `--recompute` (or a cache-cold run at a new
+  penalty/seed/size) needs the internal, proprietary `quantum_preconditioning`
+  package (Rigetti's QAOA state-vector tooling), source at
+  https://github.com/anurag-r20/Quantum_Preconditioning_Rigetti (private;
+  access on request), commit `211426d23680b0a2b3e782c982699718c04aa68d`. That
+  package cannot be redistributed here, so it is not installable from this
+  repository; see the script docstring for the exact imports.
 
 ## Repo layout
 

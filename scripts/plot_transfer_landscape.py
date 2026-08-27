@@ -398,13 +398,6 @@ def main() -> None:
         f"_res{resolution}_N{n_tag}{vary_tag}.npz"
     )
 
-    if args.layer == 1:
-        # compute_Zi/compute_ZiZj are numba parallel=True kernels. For arrays this small,
-        # per-call thread-spawn/sync overhead dominates and swamps any parallel speedup
-        # (>>10x slower than serial) -- same fix as generate_high_penalties.py's p=1 path.
-        import numba as nb
-        nb.set_num_threads(1)
-
     print(f"Data root   : {data_root}")
     print(f"Seed        : {args.seed}")
     print(f"Penalty     : {args.penalty}")
@@ -418,6 +411,16 @@ def main() -> None:
         points = {N: (float(cached[f"point_{N}"][0]), float(cached[f"point_{N}"][1])) for N in n_values}
         grids = {N: (cached[f"u_{N}"], cached[f"beta_{N}"], cached[f"Z_{N}"]) for N in n_values}
     else:
+        if args.layer == 1:
+            # compute_Zi/compute_ZiZj are numba parallel=True kernels, only used by the
+            # recompute path below (_landscape_p1 -> _eval_cost_p1). For arrays this small,
+            # per-call thread-spawn/sync overhead dominates and swamps any parallel speedup
+            # (>>10x slower than serial) -- same fix as generate_high_penalties.py's p=1 path.
+            # Imported here (not at module/cache-check level) so the cache-hit replot path
+            # never requires numba to be installed.
+            import numba as nb
+            nb.set_num_threads(1)
+
         # First pass: load each N's actual angles to find where the operating point sits.
         # BFGS is unconstrained after initialization and QAOA cost is periodic, so a found
         # angle can legitimately land outside the [0, pi/sqrt(20)] x [0, pi/2] init box --

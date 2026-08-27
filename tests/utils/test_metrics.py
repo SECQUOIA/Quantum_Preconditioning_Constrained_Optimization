@@ -1,10 +1,12 @@
 """Unit tests for analysis metrics in qp_gurobi/utils.py.
 
-Covers the four confirmed bugs from BUGS_AND_OPTIMIZATIONS.md:
-  Bug #1 — time_to_best_sec  (tested in tests/solve/)
-  Bug #2 — epsilon threshold formula  (documented here; see note in class)
-  Bug #3 — cross-join on missing 'n' key in prepare_penalty_metrics
-  Bug #4 — SEM denominator: hit_count vs total_count
+Covers four previously-fixed correctness bugs:
+  Bug #1 — time_to_best_sec advanced on every incumbent instead of only on
+           strict improvement over the running best  (tested in tests/solve/)
+  Bug #2 — epsilon threshold formula for negative objectives  (see note in class)
+  Bug #3 — prepare_penalty_metrics cross-joined seeds across different N values
+           when the merge key omitted 'n'
+  Bug #4 — hit-time SEM divided by sqrt(hit_count) instead of sqrt(total_count)
 
 No Gurobi dependency; all tests are pure pandas/numpy.
 """
@@ -114,6 +116,45 @@ def _make_disagreeing_penalty_df() -> pd.DataFrame:
             {"name": "precond_pen=0.300", "n": 8, "seed": 1, "presolve": True, "objective_baseline": -9.9, "penalty": 0.3},
         ]
     )
+
+
+def _make_conflicting_hit_vs_quality_fixture() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Two penalties at one N/depth where hit-time and final-quality disagree.
+
+    ρ=0.3 reaches the eps threshold fast (t=0.2s) but settles on a slightly
+    worse final objective (0.5% gap); ρ=0.6 reaches it slowly (t=5.0s) but
+    settles on the exact optimum (0% gap). A hit-time-based "fixed" selection
+    must pick 0.3; a quality-gap-based one would pick 0.6 instead.
+    """
+    base_opt = 10.0
+    summary_rows = []
+    traj_rows = []
+    for seed in (0, 1):
+        summary_rows.append({
+            "name": "baseline", "n": 8, "seed": seed, "presolve": True,
+            "objective_baseline": base_opt, "penalty": None, "layers": 1,
+        })
+        summary_rows.append({
+            "name": "precond_pen=0.300", "n": 8, "seed": seed, "presolve": True,
+            "objective_baseline": 10.05, "penalty": 0.3, "layers": 1,
+        })
+        summary_rows.append({
+            "name": "precond_pen=0.600", "n": 8, "seed": seed, "presolve": True,
+            "objective_baseline": base_opt, "penalty": 0.6, "layers": 1,
+        })
+        for penalty, name, events in (
+            (0.3, "precond_pen=0.300", [(0.01, 15.0), (0.2, 10.05)]),
+            (0.6, "precond_pen=0.600", [(0.01, 15.0), (5.0, base_opt)]),
+        ):
+            best = float("inf")
+            for idx, (t, v) in enumerate(events):
+                best = min(best, v)
+                traj_rows.append({
+                    "name": name, "n": 8, "seed": seed, "penalty": penalty,
+                    "presolve": True, "event_idx": idx, "time_sec": t,
+                    "running_best_orig_obj": best, "layers": 1,
+                })
+    return pd.DataFrame(summary_rows), pd.DataFrame(traj_rows)
 
 
 # ---------------------------------------------------------------------------
@@ -392,6 +433,26 @@ class TestComputeFixedRhoByDepth:
         )
 
         # ASSERT: a single tested penalty degenerates to itself being picked.
+        assert result == pytest.approx({1.0: 0.3})
+
+    def test__compute_fixed_rho_by_depth__picks_hit_time_argmin_not_quality_argmin(self):
+        # ARRANGE: rho=0.3 is faster to hit but ends up slightly worse; rho=0.6
+        # is slower but exact. This is the only way to actually exercise the
+        # helper's "hit-time" semantics -- with a single tested penalty (as in
+        # the test above) any selection rule degenerates to picking it.
+        summary_df, traj_df = _make_conflicting_hit_vs_quality_fixture()
+
+        # ACT
+        result = compute_fixed_rho_by_depth(
+            summary_df=summary_df,
+            traj_df=traj_df,
+            layers_list=[1],
+            presolve=True,
+            eps_threshold=0.01,
+        )
+
+        # ASSERT: hit-time argmin (0.3), not the quality-gap argmin (0.6) a
+        # final-objective-based strategy would have picked instead.
         assert result == pytest.approx({1.0: 0.3})
 
 

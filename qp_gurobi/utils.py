@@ -1589,6 +1589,38 @@ def _compute_eps_hit_col(
     return sub, "eps_hit_time"
 
 
+def _prepare_eps_hit_rows(
+    summary_df: pd.DataFrame,
+    traj_df: Optional[pd.DataFrame],
+    presolve: bool,
+    eps_threshold: float,
+) -> tuple[pd.DataFrame, pd.DataFrame, str, pd.DataFrame]:
+    """Shared per-presolve preamble for the Global-ρ selection.
+
+    Filters to one presolve setting, computes the eps-hit-time column, and
+    splits into baseline vs. non-baseline rows (the latter merged with each
+    instance's baseline optimum). Used by both ``compute_fixed_rho_by_depth``
+    and ``plot_layer_comparison_grid_by_presolve`` so their ρ selection stays
+    structurally identical rather than merely textually duplicated. Returns
+    ``(sub_eps, baseline_opt, value_col, pre_rows)``; ``baseline_opt`` is
+    empty when there are no baseline rows for this presolve setting.
+    """
+    sub = summary_df[summary_df["presolve"] == bool(presolve)].copy()
+    baseline_rows = sub[sub["name"] == "baseline"].copy()
+    if baseline_rows.empty:
+        return sub, baseline_rows, "", pd.DataFrame()
+    baseline_opt = (
+        baseline_rows[["n", "seed", "presolve", "objective_baseline"]]
+        .drop_duplicates(subset=["n", "seed", "presolve"])
+        .rename(columns={"objective_baseline": "baseline_opt"})
+    )
+    traj_sub = traj_df[traj_df["presolve"] == bool(presolve)].copy() if traj_df is not None else None
+    sub_eps, value_col = _compute_eps_hit_col(sub, baseline_opt, traj_sub, eps_threshold)
+    pre_rows = sub_eps[sub_eps["name"] != "baseline"].copy()
+    pre_rows = pre_rows.merge(baseline_opt, on=["n", "seed", "presolve"], how="left")
+    return sub_eps, baseline_opt, value_col, pre_rows
+
+
 def compute_fixed_rho_by_depth(
     summary_df: pd.DataFrame,
     traj_df: pd.DataFrame,
@@ -1605,19 +1637,11 @@ def compute_fixed_rho_by_depth(
     the same per-depth ρ instead of independently re-selecting one against a
     different quantity (final solution quality).
     """
-    sub = summary_df[summary_df["presolve"] == bool(presolve)].copy()
-    baseline_rows = sub[sub["name"] == "baseline"].copy()
-    if baseline_rows.empty:
-        return {}
-    baseline_opt = (
-        baseline_rows[["n", "seed", "presolve", "objective_baseline"]]
-        .drop_duplicates(subset=["n", "seed", "presolve"])
-        .rename(columns={"objective_baseline": "baseline_opt"})
+    _, baseline_opt, value_col, pre_rows = _prepare_eps_hit_rows(
+        summary_df, traj_df, presolve, eps_threshold
     )
-    traj_sub = traj_df[traj_df["presolve"] == bool(presolve)].copy()
-    sub_eps, value_col = _compute_eps_hit_col(sub, baseline_opt, traj_sub, eps_threshold)
-    pre_rows = sub_eps[sub_eps["name"] != "baseline"].copy()
-    pre_rows = pre_rows.merge(baseline_opt, on=["n", "seed", "presolve"], how="left")
+    if baseline_opt.empty:
+        return {}
 
     rho_by_depth: Dict[float, float] = {}
     for layer in layers_list:
@@ -1683,25 +1707,12 @@ def plot_layer_comparison_grid_by_presolve(
         axes[0, col].set_title(title, fontsize=20, pad=10)
 
     for row, (presolve, presolve_label) in enumerate(presolve_rows):
-        sub = summary_df[summary_df["presolve"] == bool(presolve)].copy()
-        if sub.empty:
-            continue
-        traj_sub = traj_df[traj_df["presolve"] == bool(presolve)].copy() if traj_df is not None else None
-
-        baseline_rows = sub[sub["name"] == "baseline"].copy()
-        if baseline_rows.empty:
-            continue
-
-        baseline_opt = (
-            baseline_rows[["n", "seed", "presolve", "objective_baseline"]]
-            .drop_duplicates(subset=["n", "seed", "presolve"])
-            .rename(columns={"objective_baseline": "baseline_opt"})
+        sub_eps, baseline_opt, value_col, pre_rows = _prepare_eps_hit_rows(
+            summary_df, traj_df, presolve, eps_threshold
         )
-
-        sub_eps, value_col = _compute_eps_hit_col(sub, baseline_opt, traj_sub, eps_threshold)
+        if baseline_opt.empty:
+            continue
         baseline_rows_eps = sub_eps[sub_eps["name"] == "baseline"].copy()
-        pre_rows = sub_eps[sub_eps["name"] != "baseline"].copy()
-        pre_rows = pre_rows.merge(baseline_opt, on=["n", "seed", "presolve"], how="left")
 
         baseline_seed_agg = (
             baseline_rows_eps.groupby(["n", "seed"], as_index=False)[value_col]
