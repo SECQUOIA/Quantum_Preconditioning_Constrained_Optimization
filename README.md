@@ -245,3 +245,8 @@ The QAOA correlation-matrix preconditioning approach this repo builds on:
   problem on a superconducting quantum computer," Phys. Rev. Applied **23**,
   014045 (2025). DOI:
   [10.1103/PhysRevApplied.23.014045](https://doi.org/10.1103/PhysRevApplied.23.014045)
+- E. Farhi, J. Goldstone, and S. Gutmann, A Quantum Approximate Optimization Algorithm,
+  arXiv:1411.4028, (2014), https://arxiv.org/abs/1411.4028.
+
+Learn more about the MIP solver here:
+- https://www.gurobi.com/
