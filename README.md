@@ -1,9 +1,11 @@
 # Gurobi_QP: baseline vs QAOA-preconditioned graph bipartitioning
 
-This repo compares solving a graph-bipartitioning QUBO with plain Gurobi
-against solving it with a **preconditioned** objective (from QAOA-derived
-penalty terms), then re-evaluating both solutions under the same baseline
-objective:
+This repo compares solving a graph-bipartitioning binary quadratic program
+with plain Gurobi against solving it with a **preconditioned** objective
+(from QAOA-derived penalty terms), then re-evaluating both solutions under
+the same baseline objective. The hard bisection constraint below is always
+enforced directly in the Gurobi model, never relaxed into a penalty, so this
+is never an unconstrained (QUBO) problem:
 
 - **Baseline** objective from `one_equality_new/complete_random/N=.../seed=.../problem.dat`
 - **Quantum-preconditioned** objectives from
